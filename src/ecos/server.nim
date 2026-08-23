@@ -87,7 +87,7 @@ proc recentEventsJson(sim: SimServer, fromTick: int): seq[JsonNode] =
     result.insert(eventToJson(sim.events[i]), 0)
 
 proc chromeInputOf(gs: GameState, viewer: GlobalViewerState,
-    stepped: seq[JsonNode], withLead: bool): ChromeInput =
+    stepped: seq[JsonNode]): ChromeInput =
   let sim = gs.sim
   result = ChromeInput(
     tick: sim.tick,
@@ -121,21 +121,18 @@ proc chromeInputOf(gs: GameState, viewer: GlobalViewerState,
     result.aliases[slot] = sim.names[slot]
     result.policyNames[slot] = sim.policyNames[slot]
     result.roleOfSlot[slot] = ord(sim.roleOf[slot])
-  if withLead:
-    var pts = newJArray()
-    for index, row in sim.seriesPop:
-      var point = newJArray()
-      point.add(%index)
-      for species in Species:
-        point.add(%(row[ord(species)] * 1000 div
-          max(1, sim.capOf(species))))
-      pts.add(point)
-    result.leadPts = pts
+  ## No `lead` series on the LIVE path. `chrome_common.js` latches the first
+  ## series it is sent and then stops accumulating (`ingestLeadSeries` ->
+  ## `recordMomentum`), so shipping the one row a spectator who connects at
+  ## tick 0 has would freeze the population strip at a single point for the
+  ## whole episode. Fed frame by frame instead — paintbot's lives series —
+  ## the strip grows as it plays. The ship-once trick belongs to the RECORDED
+  ## replay, where the whole series exists up front (`replays.nim`).
 
-proc sendBoard(gs: var GameState, socket: WebSocket, stepped: seq[JsonNode],
-    withLead: bool) =
+proc sendBoard(gs: var GameState, socket: WebSocket,
+    stepped: seq[JsonNode]) =
   var viewer = gs.viewers.getOrDefault(socket, initGlobalViewerState())
-  let chrome = buildStateJson(gs.chromeInputOf(viewer, stepped, withLead))
+  let chrome = buildStateJson(gs.chromeInputOf(viewer, stepped))
   let packet = buildBoardPacket(viewer, boardFrameOf(gs.sim), @[], 0, chrome)
   gs.viewers[socket] = viewer
   for chunk in chunkSpritePacket(packet, 400_000):
@@ -145,7 +142,7 @@ proc broadcastLocked(gs: var GameState, fromTick: int) =
   ## Callers hold stateLock.
   let stepped = gs.sim.recentEventsJson(fromTick)
   for socket in gs.globalSockets:
-    gs.sendBoard(socket, stepped, false)
+    gs.sendBoard(socket, stepped)
   for slot, socket in gs.playerSockets:
     socket.send($gs.sim.observationJson(slot))
 
@@ -406,7 +403,7 @@ proc globalUpgradeHandler(request: Request) {.gcsafe.} =
     withLock stateLock:
       state.globalSockets.incl(websocket)
       state.viewers[websocket] = initGlobalViewerState()
-      state.sendBoard(websocket, @[], true)
+      state.sendBoard(websocket, @[])
 
 proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
     message: Message) {.gcsafe.} =
