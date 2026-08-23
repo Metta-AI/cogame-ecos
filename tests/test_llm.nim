@@ -151,6 +151,15 @@ when isMainModule:
     doAssert decisions[1].fields ==
       scriptedDoctrine(sim, sim.roleOf[1], skOpportunist)
 
+  # ---- the kernel a seat is told is the kernel the sim runs ----------------
+  # The prompt quotes the payoff a predator gets for a kill. It is built from
+  # the sim's own constants, so a change to `KillBase` moves both or neither.
+  block:
+    let system = sim.systemPrompt(sim.seatOf[spPredators])
+    doAssert "min(" & $KillCap & ", " & $KillBase &
+      " + the grazer's energy)" in system,
+      "the predator prompt must quote the sim's kill formula, not a stale one"
+
   # ---- haiku only: the sonnet fallbacks cascade on the sidecar --------------
   doAssert bedrockModelIds() == @["us.anthropic.claude-haiku-4-5-20251001-v1:0"]
 

@@ -160,9 +160,9 @@ pays 1 per tick. Below it, it locks onto the nearest grazer within hunt_range
 and chases at 12 units per tick for 3 per tick, steering `spread` percent away
 from the nearest other predator; with no grazer in range it roams at 7 for 2
 per tick. Within 16 units, and only once every 12 ticks, it kills: it gains
-min(180, 60 + the grazer's energy), capped at 480 total. At birth_threshold it
-splits, both halves keeping (energy - 20) / 2. Your population cap is 30. You
-eat GRAZERS, who eat GRASS. Nothing eats you."""
+min(""" & $KillCap & ", " & $KillBase & """ + the grazer's energy), capped at
+480 total. At birth_threshold it splits, both halves keeping (energy - 20) / 2.
+Your population cap is 30. You eat GRAZERS, who eat GRASS. Nothing eats you."""
 
 proc systemPrompt*(sim: SimServer, slot: int): string =
   let species = sim.roleOf[slot]
