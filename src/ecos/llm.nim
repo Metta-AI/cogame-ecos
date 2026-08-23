@@ -197,10 +197,11 @@ object. Your reply must begin with the character { and end with }.""")
 
 proc historyTable(sim: SimServer): string =
   var lines: seq[string]
-  lines.add("gen | grass n/B | grazers n/B | predators n/B | births | " &
-    "starved | eaten | your score")
-  let mine = ord(sim.roleOf[0])
-  discard mine
+  ## The last three columns each carry all three species in role order
+  ## (grass, grazers, predators) — every one of those numbers is on the
+  ## seat's visible list, so the header says so rather than "your score".
+  lines.add("gen | grass n/B | grazers n/B | predators n/B | " &
+    "births g,h,p | starved g,h,p | eaten | scores g,h,p")
   for index, row in sim.history:
     lines.add($(index + 1) & " | " &
       $row.pop[0] & "/" & $row.bio[0] & " | " &
