@@ -82,6 +82,32 @@ when isMainModule:
   let reparsed = parseReplayBytes(bytes)
   doAssert reparsed.frames.len == ticksPlayed + 1
   doAssert reparsed.config.fieldW == sim.config.fieldW
+
+  # Value by value, not count by count: a transposed or truncated triple
+  # draws a board that is the right SIZE and the wrong picture, and the
+  # viewer has nothing else to check itself against.
+  doAssert reparsed.frames.len == sim.frames.len
+  for index, frame in sim.frames:
+    let reread = reparsed.frames[index]
+    doAssert reread.t == index, "frame " & $index & " is stamped " & $reread.t
+    doAssert reread.g == frame.g, "grass bodies differ at frame " & $index
+    doAssert reread.h == frame.h, "grazer bodies differ at frame " & $index
+    doAssert reread.p == frame.p, "predator bodies differ at frame " & $index
+    # …and the frame agrees with the series row the same tick recorded: the
+    # populations are the body counts and the biomass is their energy sum.
+    for species in 0 .. 2:
+      var energy = 0
+      for i in 0 ..< reread.bodyCount(species):
+        energy += reread.bodyAt(species, i).e
+      doAssert reread.bodyCount(species) ==
+        reparsed.series.pop[index][species + 1],
+        "frame " & $index & " draws " & $reread.bodyCount(species) &
+        " bodies of species " & $species & " where the strip says " &
+        $reparsed.series.pop[index][species + 1]
+      doAssert energy == reparsed.series.bio[index][species + 1],
+        "frame " & $index & " carries biomass " & $energy &
+        " where the series says " & $reparsed.series.bio[index][species + 1]
+
   var player = initReplayPlayer(reparsed)
   doAssert player.lastTick == ticksPlayed
   doAssert player.boardFrame().bodies[0].len ==
