@@ -388,6 +388,21 @@ proc buildBoardPacket*(
       let stage = clampInt(item.age * 3 div max(1, SparkleTicks), 0, 2)
       result.addObject(objectId, item.x - 8, item.y - 8, FxZ, MapLayerId,
         SparkleSpriteBase + stage)
+      ## …with a hairline back to the parent. The sprite protocol draws
+      ## sprites, not lines, so the link is two dimmed sparkles spaced along
+      ## the segment; a child born on top of its parent gets none.
+      let dx = item.px - item.x
+      let dy = item.py - item.y
+      if dx * dx + dy * dy > 64:
+        for part in 1 .. 2:
+          if fxSlot >= MaxFxObjects: break
+          let linkId = FxObjectBase + fxSlot
+          inc fxSlot
+          live.add(linkId)
+          result.addObject(linkId,
+            item.x + (dx * part) div 3 - 8,
+            item.y + (dy * part) div 3 - 8,
+            FxZ - 2, MapLayerId, SparkleSpriteBase + 2)
     of fkSplash:
       let stage = clampInt(item.age * 3 div max(1, SplashTicks), 0, 2)
       result.addObject(objectId, item.x - 10, item.y - 10, FxZ, MapLayerId,

@@ -3476,7 +3476,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       case 'alarm': onAlarm(e, s); markBeat(e.t, 'alarm', TEAM_OF_SPECIES[e.sp]); beatPulse(); break;
       case 'collapse': onCollapse(e, s); markBeat(e.t, 'collapse', TEAM_OF_SPECIES[e.sp]); beatPulse(); break;
       case 'generation': /* the clock and the strip carry the generation */ break;
-      case 'end': /* the end-card is state-driven */ break;
+      case 'end': onEnd(e, s); break;
       default: /* births, deaths and predation are drawn on the board */ break;
     }
   }
@@ -3522,7 +3522,25 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   function onCollapse(e, s) {
     var team = TEAM_OF_SPECIES[e.sp] || 'green';
+    var row = document.createElement('div');
+    row.className = 'feed-row flagkill';
+    row.innerHTML =
+      '<span class="who ' + team + '">' + esc(String(e.sp).toUpperCase()) + '</span>' +
+      '<span class="badge tk">COLLAPSED — the episode ends here</span>';
+    pushFeed(row);
     banner(String(e.sp).toUpperCase() + ' COLLAPSED', 'wipe accent ' + team);
+  }
+
+  // The end-card is state-driven, but the feed gets the last word too, so a
+  // spectator who is reading the feed sees WHY the episode stopped.
+  function onEnd(e, s) {
+    var ending = String(e.ending || e.reason || 'over').replace(/_/g, ' ');
+    var row = document.createElement('div');
+    row.className = 'feed-row';
+    row.innerHTML =
+      '<span class="who">EPISODE</span>' +
+      '<span class="badge">' + esc(ending.toUpperCase()) + '</span>';
+    pushFeed(row);
   }
 
   // Slots already drawn as the partner of a provable same-tick trade, so the
