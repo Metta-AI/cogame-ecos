@@ -270,9 +270,18 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
     if timeoutSeconds <= 0.0:
       timeoutSeconds = float(config.episodeTimeoutSeconds)
     let playDeadline = gameStart + timeoutSeconds * PlayBudgetFraction
+    ## What starting one more generation commits to: a batch, a retry batch,
+    ## a generation of simulation and up to `minTurnSeconds` of floor sleep.
+    ## The deadline is checked BETWEEN generations only (the note's rule), so
+    ## it has to be met with that reserve in hand or the settle lands outside
+    ## the 60 % play budget it is meant to fit inside.
+    let generationReserve =
+      float(2 * config.llmTimeoutSeconds + config.minTurnSeconds)
     logLine("ecos: episode timeout " & $int(timeoutSeconds) & "s (" &
       (if hostedTimeout.len > 0: "from env" else: "assumed") &
-      "); playing until " & $int(timeoutSeconds * PlayBudgetFraction) & "s")
+      "); playing until " & $int(timeoutSeconds * PlayBudgetFraction) &
+      "s, last generation started by " &
+      $int(timeoutSeconds * PlayBudgetFraction - generationReserve) & "s")
 
     while true:
       var simCopy: SimServer
@@ -282,7 +291,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       withLock stateLock:
         if state.sim.done:
           break
-        if epochTime() > playDeadline:
+        if epochTime() + generationReserve > playDeadline:
           logLine("ecos: play deadline reached after " &
             $state.sim.generationsPlayed & "/" & $config.generations &
             " generations; ending early")
