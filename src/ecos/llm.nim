@@ -27,6 +27,13 @@ const
   BedrockAnthropicVersion = "bedrock-2023-05-31"
 
 type
+  EcosThrottleError* = object of EcosError
+    ## A 429 from the sidecar. Distinct from an unusable reply because the
+    ## note says a throttled seat is retried in the NEXT generation's batch,
+    ## not in this generation's retry batch: hitting a throttled sidecar
+    ## twice inside 50 s is what turned one throttle into a cascade
+    ## (LEARNINGS 2026-08-23 raid, item 4).
+
   Decision* = object
     fields*: Doctrine
     clamped*: bool
@@ -336,7 +343,7 @@ proc textOf*(client: LlmClient, response: Response, error, url: string): string 
       "llm auth failed (" & $response.code & ") at " & url & ": " & detail)
   if response.code == 429:
     let detail = response.body[0 .. min(response.body.high, 300)]
-    raise newException(EcosError, "llm throttled (429): " & detail)
+    raise newException(EcosThrottleError, "llm throttled (429): " & detail)
   if response.code < 200 or response.code >= 300:
     raise newException(EcosError, "llm error " & $response.code & ": " &
       response.body[0 .. min(response.body.high, 300)])
@@ -468,6 +475,13 @@ proc decideAll*(
         decision.source = (if attempt == 0: dsLlm else: dsRetry)
         decision.latencyMs = latency
         result[index] = decision
+      except EcosThrottleError as error:
+        ## Not re-opened: this seat plays the steward doctrine for this
+        ## generation and gets a fresh call in the NEXT generation's batch,
+        ## a whole `minTurnSeconds`-floored turn later.
+        logLine("ecos llm: seat " & $slot & " " & error.msg &
+          "; playing scripted this generation and retrying in the next " &
+          "generation's batch")
       except CatchableError as error:
         logLine("ecos llm: seat " & $slot & " attempt " & $attempt &
           " failed: " & error.msg)

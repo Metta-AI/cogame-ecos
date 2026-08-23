@@ -87,6 +87,18 @@ when isMainModule:
       return e.msg
   doAssert "transport" in failsWith(Response(), "operation timed out")
   doAssert "throttled" in failsWith(status(429), "")
+  block:
+    # A 429 is its OWN failure: the seat plays scripted for this generation
+    # and is retried in the NEXT generation's batch, not in this one's.
+    var throttled = false
+    try:
+      discard client.decisionFrom(spGrazers, status(429), "", "http://stub")
+    except EcosThrottleError:
+      throttled = true
+    except EcosError:
+      discard
+    doAssert throttled,
+      "a 429 must be distinguishable from an unusable reply"
   doAssert failsWith(reply("not json at all"), "").len > 0
   doAssert failsWith(
     Response(code: 200, body: $ %*{"content": [], "stop_reason": "refusal"}),
