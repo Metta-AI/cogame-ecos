@@ -388,21 +388,6 @@ proc buildBoardPacket*(
       let stage = clampInt(item.age * 3 div max(1, SparkleTicks), 0, 2)
       result.addObject(objectId, item.x - 8, item.y - 8, FxZ, MapLayerId,
         SparkleSpriteBase + stage)
-      ## …with a hairline back to the parent. The sprite protocol draws
-      ## sprites, not lines, so the link is two dimmed sparkles spaced along
-      ## the segment; a child born on top of its parent gets none.
-      let dx = item.px - item.x
-      let dy = item.py - item.y
-      if dx * dx + dy * dy > 64:
-        for part in 1 .. 2:
-          if fxSlot >= MaxFxObjects: break
-          let linkId = FxObjectBase + fxSlot
-          inc fxSlot
-          live.add(linkId)
-          result.addObject(linkId,
-            item.x + (dx * part) div 3 - 8,
-            item.y + (dy * part) div 3 - 8,
-            FxZ - 2, MapLayerId, SparkleSpriteBase + 2)
     of fkSplash:
       let stage = clampInt(item.age * 3 div max(1, SplashTicks), 0, 2)
       result.addObject(objectId, item.x - 10, item.y - 10, FxZ, MapLayerId,
@@ -413,6 +398,27 @@ proc buildBoardPacket*(
                   elif item.speciesIndex == 1: 14 else: 20)
       result.addObject(objectId, item.x - half, item.y - half, FxZ - 1,
         MapLayerId, FadeSpriteBase + item.speciesIndex * 3 + stage)
+
+  ## Each birth also draws a hairline back to its parent — the sprite protocol
+  ## draws sprites, not lines, so the link is two dimmed sparkles spaced along
+  ## the segment; a child born on top of its parent gets none. Second pass, so
+  ## the links spend what is LEFT of the pool: on a heavy birth tick one
+  ## sparkle must not take three slots and drop another body's fade or splash.
+  for item in fx:
+    if item.kind != fkSparkle: continue
+    if fxSlot >= MaxFxObjects: break
+    let dx = item.px - item.x
+    let dy = item.py - item.y
+    if dx * dx + dy * dy <= 64: continue
+    for part in 1 .. 2:
+      if fxSlot >= MaxFxObjects: break
+      let linkId = FxObjectBase + fxSlot
+      inc fxSlot
+      live.add(linkId)
+      result.addObject(linkId,
+        item.x + (dx * part) div 3 - 8,
+        item.y + (dy * part) div 3 - 8,
+        FxZ - 2, MapLayerId, SparkleSpriteBase + 2)
 
   if desatStage > 0:
     let cols = (frame.fieldW + SoilTile - 1) div SoilTile
