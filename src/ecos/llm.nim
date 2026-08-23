@@ -478,10 +478,15 @@ proc decideAll*(
       except EcosThrottleError as error:
         ## Not re-opened: this seat plays the steward doctrine for this
         ## generation and gets a fresh call in the NEXT generation's batch,
-        ## a whole `minTurnSeconds`-floored turn later.
+        ## a whole `minTurnSeconds`-floored turn later. The doctrine is
+        ## written HERE — the terminal fallback loop below only sees seats
+        ## left open — and recorded `fallback` like every other terminal
+        ## failure, so phase 60 counts the miss.
         logLine("ecos llm: seat " & $slot & " " & error.msg &
           "; playing scripted this generation and retrying in the next " &
           "generation's batch")
+        result[index] = scriptedDecision(sim, sim.roleOf[slot], skSteward)
+        result[index].source = dsFallback
       except CatchableError as error:
         logLine("ecos llm: seat " & $slot & " attempt " & $attempt &
           " failed: " & error.msg)
