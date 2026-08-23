@@ -182,7 +182,12 @@ proc precompute(player: var ReplayPlayer) =
       if ramp[index] > worst: worst = ramp[index]
       if tick > 0:
         accum[index] += bioRow[index + 1]
-      if tick > 0 and tick mod perGeneration == 0:
+      ## Flushed on a generation boundary AND on the last recorded tick: an
+      ## episode that ends mid-generation (a collapse) has its partial window
+      ## closed and scored by the sim against the FULL denominator
+      ## (`sim.nim`'s `step` → `closeGeneration`), so a viewer that dropped
+      ## the residue would sit below `results.scores` on every collapse.
+      if tick > 0 and (tick mod perGeneration == 0 or tick == ticks - 1):
         let reference =
           if index < doc[].config.references.len: doc[].config.references[index]
           else: 1

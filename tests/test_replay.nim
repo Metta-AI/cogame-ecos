@@ -157,6 +157,69 @@ when isMainModule:
           "the end-card crowns " & card{"winner"}.getStr() &
           " where results.win crowns slot " & $slot & " (" & key & ")"
 
+  # ---- the same lock, on an episode that COLLAPSES mid-generation ----------
+  # A collapse ends the episode on whatever tick it happens; the sim closes
+  # that partial window and scores it against the full denominator
+  # (`sim.nim`'s `step`). The viewer flushed its accumulator only on exact
+  # generation boundaries, so on every collapse replay the scorebug and the
+  # end-card sat below `results.scores` — by a different amount per seat, so
+  # the crowned seat could differ from `results.win`.
+  block:
+    # The greedy predator from tests/test_broadcast.nim: it strips the grazers
+    # and starves, reliably, on one of the first few seeds.
+    let picker = fixedPicker([StewardDoctrine[spGrass],
+      StewardDoctrine[spGrazers], [200, 400, 480, 40]])
+    var crashed: SimServer = nil
+    for seed in 1 .. 6:
+      let candidate = runEpisode(standardConfig(seed), picker)
+      if candidate.ending.startsWith("collapse_") and
+          candidate.tick mod candidate.config.ticksPerGeneration != 0:
+        crashed = candidate
+        break
+    doAssert crashed != nil,
+      "a greedy predator must be able to crash a field mid-generation"
+    let crashedResults = crashed.resultsJson()
+    let crashedDoc = parseReplayBytes(replayBytes(crashed, crashedResults))
+    var scored = initReplayPlayer(crashedDoc)
+    doAssert scored.lastTick == crashed.tick
+    let derived = scored.scoreAt[scored.lastTick]
+    for slot in 0 .. 2:
+      let index = ord(crashed.roleOf[slot])
+      doAssert derived[index] == crashedResults{"scores"}[slot].getFloat(),
+        "collapse at tick " & $crashed.tick & ", slot " & $slot &
+        ": the viewer re-derives " & formatFloat(derived[index], ffDecimal, 6) &
+        " where results.json carries " &
+        formatFloat(crashedResults{"scores"}[slot].getFloat(), ffDecimal, 6)
+    # The replay's own `end` row carries the sim's scores by slot — a second,
+    # independent oracle for the same numbers.
+    var sawEnd = false
+    for event in crashedDoc.events:
+      if event{"k"}.getStr() != "end": continue
+      sawEnd = true
+      for slot in 0 .. 2:
+        doAssert event{"scores"}[slot].getFloat() ==
+          derived[ord(crashed.roleOf[slot])],
+          "the recorded end row and the viewer's re-derivation disagree on " &
+          "slot " & $slot
+    doAssert sawEnd, "a collapsed episode must record an end row"
+    # …and the end-card crowns the seat `results.win` crowns.
+    var viewer = initGlobalViewerState()
+    viewer.jumpEnd = true
+    let ending = scored.advanceReplayFrame(viewer)
+    let card = parseJson(ending.chrome){"over"}
+    doAssert not card.isNil, "the last frame must carry the end-card"
+    doAssert card{"ending"}.getStr().startsWith("collapse_")
+    for slot in 0 .. 2:
+      let key = RoleTeamKey[crashed.roleOf[slot]]
+      doAssert card{"teams"}{key}{"score"}.getFloat() ==
+        crashedResults{"scores"}[slot].getFloat(),
+        "the end-card score for " & key & " is not results.scores[" &
+        $slot & "]"
+      if crashedResults{"win"}[slot].getBool():
+        doAssert card{"winner"}.getStr() == key or card{"draw"}.getBool(),
+          "the end-card crowns " & card{"winner"}.getStr() &
+          " where results.win crowns slot " & $slot & " (" & key & ")"
+
   # ---- the wasm entry point's whole loop, natively ---------------------------
   # `replay-viewer/ecos_replay.nim` is exactly these three calls; running them
   # here means a broken packet or a bad seek is a test failure rather than a
