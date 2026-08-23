@@ -724,6 +724,19 @@ with `required: ["tokens"]`.
   With no credentials offline, `ecos-player` falls back to `steward`, so the fixture is
   deterministic.
 
+  **Shipped deviation (build 2026-08-23, `coworld_manifest_template.json`):** the fixture ships
+  `{generations: 6, ticksPerGeneration: 60, minTurnSeconds: 0}` where this note wrote
+  `{generations: 3, ticksPerGeneration: 30}` and left `minTurnSeconds` at its default. Measured
+  reason: `3 × 30 = 90` ticks is **3.75 s of video** at the viewer's 24 fps, and `ci.yml`'s
+  `wasm-viewer` job runs `tools/ci/viewer_smoke.mjs --soak 10` against exactly this episode's
+  replay — a viewer that has already reached its last frame stops advancing, so the soak gate
+  reports a *finished* viewer as frozen and the job fails. `6 × 60 = 360` ticks is 15 s of
+  playback, which outlasts the soak with margin. `minTurnSeconds: 0` removes the per-generation
+  floor that exists only to stay under the sidecar's request ceiling; the offline fixture issues
+  no LLM requests at all (no credentials → every seat plays `steward`), so the floor buys nothing
+  and costs 6 s per generation of smoke wall clock. Everything else about the fixture — seat
+  count, seed, the three seated players, the connect timeout — is as written above.
+
 **Other packaging files:** `Dockerfile` (paintbot's two-stage nimby build; produces `/bin/ecos` and
 `/bin/ecos-player`), `Dockerfile.replay-viewer` (paintbot's, with the ecos file list and the same
 `test -f` assertions), `tools/build_replay_viewer.sh` (paintbot's, image tag renamed),
