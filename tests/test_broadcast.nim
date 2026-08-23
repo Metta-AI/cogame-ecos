@@ -156,7 +156,16 @@ when isMainModule:
     doAssert crashed != nil, "a greedy predator must be able to crash a field"
     var sawAlarm = false
     var sawCollapse = false
+    var lastTick = 0
     for event in crashed.events:
+      # Every recorded row belongs to the frame it stamps, and `events[]` is
+      # sorted by `t` — the replay cursor and the live event walk both assume
+      # it, and an alarm stamped a tick late pushes the collapse row and the
+      # banner into the next tick's slice.
+      doAssert event.tick >= lastTick,
+        "events must be non-decreasing in t; " & $event.kind & " at " &
+        $event.tick & " follows " & $lastTick
+      lastTick = event.tick
       case event.kind
       of ekAlarm:
         sawAlarm = true
@@ -164,6 +173,11 @@ when isMainModule:
         doAssert node{"pop"}.getInt() * 100 <
           AlarmFraction * node{"cap"}.getInt()
         doAssert node{"sp"}.getStr() in ["grass", "grazers", "predators"]
+        doAssert event.population ==
+          crashed.seriesPop[event.tick][ord(event.species)],
+          "the alarm at tick " & $event.tick & " reports " &
+          $event.population & " where that frame recorded " &
+          $crashed.seriesPop[event.tick][ord(event.species)]
       of ekCollapse:
         sawCollapse = true
         doAssert eventToJson(event){"sp"}.getStr().len > 0

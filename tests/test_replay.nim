@@ -44,10 +44,18 @@ when isMainModule:
 
   var counts = {"birth": 0, "starve": 0, "predation": 0, "doctrine": 0,
                 "generation": 0, "alarm": 0, "collapse": 0, "end": 0}.toTable
+  var lastEventTick = 0
   for event in document{"events"}:
     let tick = event{"t"}.getInt(-1)
     doAssert tick >= 0 and tick <= ticksPlayed,
       "event tick " & $tick & " outside 0.." & $ticksPlayed
+    # `replays.nim`'s event cursor and `server.nim`'s recent-event walk both
+    # assume `events[]` is sorted by `t`; an out-of-order row lands in the
+    # wrong tick's slice and the feed draws it a frame late.
+    doAssert tick >= lastEventTick,
+      "events must be non-decreasing in t; " & event{"k"}.getStr() &
+      " at " & $tick & " follows " & $lastEventTick
+    lastEventTick = tick
     let kind = event{"k"}.getStr()
     doAssert counts.hasKey(kind), "unknown event kind " & kind
     counts[kind] = counts[kind] + 1

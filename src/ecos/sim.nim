@@ -488,14 +488,16 @@ proc splitBirths(sim: SimServer, species: Species) =
 
 proc checkAlarms(sim: SimServer) =
   ## The `alarm` event drives the viewer's silent-spring desaturation. Fires
-  ## once per species per crossing, in both directions.
+  ## once per species per crossing, in both directions. Called AFTER the tick
+  ## counter advances, so the tick it stamps is `sim.tick` — the frame whose
+  ## population crossed — and `events[]` stays sorted by `t`.
   for species in Species:
     let cap = sim.capOf(species)
     let pop = sim.population(species)
     if not sim.alarmed[species] and pop * 100 < AlarmFraction * cap:
       sim.alarmed[species] = true
       sim.events.add(EcosEvent(
-        tick: sim.tick + 1, kind: ekAlarm, species: species,
+        tick: sim.tick, kind: ekAlarm, species: species,
         population: pop, cap: cap))
     elif sim.alarmed[species] and pop * 100 >= RecoverFraction * cap:
       sim.alarmed[species] = false
