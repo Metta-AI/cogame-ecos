@@ -3,7 +3,7 @@
 ## Every number checked here is one the design note pins: change a constant
 ## and this test is where it shows up.
 
-import std/[strutils, tables]
+import std/[json, strutils, tables]
 import helpers
 import ../src/ecos/sim_state
 
@@ -264,5 +264,27 @@ when isMainModule:
       for species in Species:
         doAssert sim.roleOf[sim.seatOf[species]] == species
     doAssert seen.len == 3, "each roleOffset must deal a distinct rotation"
+
+  # ---- every seat is told ITS OWN constants ---------------------------------
+  block:
+    let sim = newSim(standardConfig(5))
+    for slot in 0 .. 2:
+      let species = sim.roleOf[slot]
+      let rules = sim.observationJson(slot){"rules"}
+      doAssert rules{"energyMax"}.getInt() == SpeciesEMax[species],
+        RoleNames[species] & " is told the wrong energy ceiling"
+      case species
+      of spGrass:
+        doAssert rules{"gain"}.getInt() == sim.config.grassGain
+        doAssert rules{"shadeRadius"}.getInt() == ShadeRadius
+        doAssert not rules.hasKey("biteRadius"), "grass does not bite"
+      of spGrazers:
+        doAssert rules{"biteRadius"}.getInt() == BiteRadius
+        doAssert rules{"speed"}.getInt() == GrazerSpeed
+        doAssert rules{"fleeSpeed"}.getInt() == GrazerFleeSpeed
+      of spPredators:
+        doAssert rules{"killBase"}.getInt() == KillBase
+        doAssert rules{"chaseSpeed"}.getInt() == PredatorChaseSpeed
+        doAssert not rules.hasKey("fleeSpeed"), "a predator never flees"
 
   echo "test_sim: ok"

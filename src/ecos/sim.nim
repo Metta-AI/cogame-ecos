@@ -699,6 +699,48 @@ proc speciesSummaryJson(sim: SimServer): JsonNode =
       "cap": sim.capOf(species)
     })
 
+proc rulesJson(sim: SimServer, species: Species): JsonNode =
+  ## The seat's OWN constants — the numbers its kernel runs on. A grass seat
+  ## has no bite radius and a predator has no flee speed; sending the grazer's
+  ## table to all three told two of them numbers that do not apply to them.
+  case species
+  of spGrass:
+    %*{
+      "metabolism": GrassMetabolism,
+      "gain": sim.config.grassGain,
+      "shadeRadius": ShadeRadius,
+      "seedLoss": SeedLoss,
+      "energyMax": GrassEMax
+    }
+  of spGrazers:
+    %*{
+      "metabolism": GrazerMetabolism,
+      "fleeMetabolism": GrazerFleeMetabolism,
+      "speed": GrazerSpeed,
+      "fleeSpeed": GrazerFleeSpeed,
+      "manyEyesSpeed": GrazerManyEyesSpeed,
+      "biteRadius": BiteRadius,
+      "conversionPercent": ConversionPercentNum * 100 div ConversionPercentDen,
+      "crowdRadius": CrowdRadius,
+      "splitOverhead": SplitOverhead,
+      "energyMax": GrazerEMax
+    }
+  of spPredators:
+    %*{
+      "idleMetabolism": PredatorIdle,
+      "chaseMetabolism": PredatorChase,
+      "roamMetabolism": PredatorRoam,
+      "chaseSpeed": PredatorChaseSpeed,
+      "roamSpeed": PredatorSpeed,
+      "killRadius": KillRadius,
+      "killBase": KillBase,
+      "killCap": KillCap,
+      "huntCooldown": HuntCooldown,
+      "crowdRadius": CrowdRadius,
+      "splitOverhead": SplitOverhead,
+      "energyMax": PredatorEMax
+    }
+
 proc observationJson*(sim: SimServer, slot: int): JsonNode =
   ## The `state` frame a seat sees at every generation boundary. Every number
   ## here is visible to the seat; nothing else is. In particular: no other
@@ -737,17 +779,7 @@ proc observationJson*(sim: SimServer, slot: int): JsonNode =
     "history": sim.historyJson(),
     "density": density,
     "notes": sim.notes[slot],
-    "rules": {
-      "metabolism": GrazerMetabolism,
-      "fleeMetabolism": GrazerFleeMetabolism,
-      "speed": GrazerSpeed,
-      "fleeSpeed": GrazerFleeSpeed,
-      "biteRadius": BiteRadius,
-      "conversionPercent": 80,
-      "crowdRadius": CrowdRadius,
-      "splitOverhead": SplitOverhead,
-      "energyMax": SpeciesEMax[species]
-    }
+    "rules": sim.rulesJson(species)
   }
 
 proc meanBiomass*(sim: SimServer, species: Species): int =
