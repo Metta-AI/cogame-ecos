@@ -2332,7 +2332,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       timeEl.textContent = 'GEN ' + gen + ' / ' + gens;
       var ending = (s.over && s.over.ending) || '';
       capEl.textContent = ending === 'ten_generations'
-        ? 'ten generations'
+        ? gens + ' generations'
         : (ending.indexOf('collapse_') === 0
             ? ending.slice(9) + ' collapsed'
             : (ending || 'episode over'));
@@ -3672,15 +3672,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return team === 'red' ? (o.redLives || 0) : team === 'blue' ? (o.blueLives || 0) : 0;
   }
 
-  function endcardWinCondition(o, teams) {
+  function endcardWinCondition(o, teams, gens) {
     // The condition CHIP: how the episode ended, in two or three words.
+    // `ten_generations` is the results contract's string for "the episode
+    // played every generation it was configured for"; the chip says HOW MANY
+    // that was, because a six-generation fixture reading TEN GENERATIONS is
+    // a lie to the spectator.
     var ending = o.ending || '';
     if (ending.indexOf('collapse_') === 0) {
       return 'COLLAPSE — ' + ending.slice(9).toUpperCase();
     }
     if (ending === 'deadline') return 'DEADLINE';
     if (ending === 'forfeit') return 'FORFEIT';
-    return o.draw ? 'TEN GENERATIONS — TIED' : 'TEN GENERATIONS';
+    var played = (gens || 10) + ' GENERATIONS';
+    return o.draw ? played + ' — TIED' : played;
   }
 
   function endcardOrder(a, b) {
@@ -3847,7 +3852,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     card._key = key;
 
     var head = $('ec-headline'), how = $('ec-how');
-    $('ec-wincond').textContent = endcardWinCondition(o, teams);
+    $('ec-wincond').textContent = endcardWinCondition(o, teams, s.gens);
 
     // MVP: the winning team's best final line (kills > fewer deaths >
     // captures — the capturer keeps their ⚑ mark, the star follows the guns).
@@ -3878,7 +3883,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       how.textContent = collapsed
         ? 'The ' + ending.slice(9) + ' reached zero, so every remaining ' +
           'generation scored nothing for anyone.'
-        : 'Ten generations, and no seat integrated more biomass than another.';
+        : (s.gens || 10) + ' generations, and no seat integrated more ' +
+          'biomass than another.';
       return;
     }
 
@@ -3901,8 +3907,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     } else if (ending === 'forfeit') {
       how.textContent = 'No seat connected, so nothing was played.';
     } else {
-      how.textContent = 'Ten generations in balance. ' + winName +
-        ' integrated the most biomass (' + winScore + ').';
+      how.textContent = (s.gens || 10) + ' generations in balance. ' +
+        winName + ' integrated the most biomass (' + winScore + ').';
     }
   }
 
