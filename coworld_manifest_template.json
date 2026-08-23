@@ -194,6 +194,15 @@
           "minimum": 0,
           "maximum": 120,
           "default": 20
+        },
+        "variant": {
+          "type": "string",
+          "description": "Which variant's opening this episode ran. Recorded into the replay's config block so a harsh-spring replay is distinguishable from a standard one.",
+          "enum": [
+            "standard",
+            "harsh-spring"
+          ],
+          "default": "standard"
         }
       }
     },
@@ -445,6 +454,7 @@
         "capGrass": 220,
         "capGrazers": 140,
         "capPredators": 30,
+        "variant": "harsh-spring",
         "playerConnectTimeoutSeconds": 180
       }
     }

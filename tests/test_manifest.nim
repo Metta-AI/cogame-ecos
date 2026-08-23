@@ -178,6 +178,27 @@ when isMainModule:
         "harsh-spring." & name & " is " & $harsh{name}.getInt() &
         " in the manifest and " & $shipped & " in the config gate (a) runs"
 
+  # ---- a variant is identifiable in the bytes it records -------------------
+  # `configJson` writes `config.variant` into every replay, but the platform
+  # can only set what the schema declares (`additionalProperties: false`), so
+  # without the property every hosted replay recorded "standard".
+  block:
+    let declared = manifest{"game"}{"config_schema"}{"properties"}{"variant"}
+    doAssert not declared.isNil, "config_schema must declare `variant`"
+    var allowed: HashSet[string]
+    for value in declared{"enum"}:
+      allowed.incl(value.getStr())
+    for variant in manifest{"variants"}:
+      let id = variant{"id"}.getStr()
+      doAssert id in allowed, "variant " & id & " is not in the variant enum"
+      if id != "standard":
+        doAssert variant{"game_config"}{"variant"}.getStr() == id,
+          "variant " & id & " must record its own id in the replay"
+    var config = defaultGameConfig()
+    config.update("""{"variant": "harsh-spring"}""")
+    doAssert config.configJson(){"variant"}.getStr() == "harsh-spring",
+      "the recorded config block must carry the variant the platform set"
+
   # ---- policies.json: two prompt champions plus the two baselines ----------
   let policies = parseJson(readFile(root / "tools" / "ci" / "policies.json"))
   doAssert policies.len == 4
