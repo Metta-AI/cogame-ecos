@@ -464,8 +464,8 @@
       ],
       "num_agents": 3,
       "seed": 7,
-      "generations": 3,
-      "ticksPerGeneration": 30,
+      "generations": 6,
+      "ticksPerGeneration": 60,
       "minTurnSeconds": 0,
       "playerConnectTimeoutSeconds": 180
     },
