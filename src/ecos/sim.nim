@@ -522,13 +522,14 @@ proc recordFrame(sim: SimServer) =
   for species in Species:
     pop[ord(species)] = sim.population(species)
     bio[ord(species)] = sim.biomass(species)
-    ## A generation is the `ticksPerGeneration` ticks it played: frame 0 is
-    ## the opening state, not a tick, so it is recorded and drawn but never
-    ## scored. The viewer re-derives the same window from `series.bio`
-    ## (`replays.nim`'s `precompute`), so the two agree exactly.
+    ## A generation is the `ticksPerGeneration` ticks it played, and
+    ## `results.biomass` is the mean over the ticks actually played: frame 0
+    ## is the opening state, not a tick, so it is recorded and drawn but
+    ## never scored or averaged. The viewer re-derives the same window from
+    ## `series.bio` (`replays.nim`'s `precompute`), so the two agree exactly.
     if sim.tick > 0:
       sim.genAccum[species] += bio[ord(species)]
-    sim.biomassSum[species] += bio[ord(species)]
+      sim.biomassSum[species] += bio[ord(species)]
     sim.lastBiomass[species] = bio[ord(species)]
   sim.seriesPop.add(pop)
   sim.seriesBio.add(bio)

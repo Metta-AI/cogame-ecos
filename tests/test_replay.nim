@@ -78,6 +78,18 @@ when isMainModule:
     results{"ending"}.getStr()
   doAssert document{"results"}{"scores"}.len == 3
 
+  # `biomass[i]` is the mean of B_i(t) over the ticks ACTUALLY PLAYED — the
+  # recorded series is the same window, so the two must agree exactly.
+  for slot in 0 .. 2:
+    let species = ord(sim.roleOf[slot])
+    var total = 0
+    for tick in 1 .. ticksPlayed:
+      total += sim.seriesBio[tick][species]
+    doAssert results{"biomass"}[slot].getInt() == total div ticksPlayed,
+      "results.biomass[" & $slot & "] is " &
+      $results{"biomass"}[slot].getInt() & " where the recorded series means " &
+      $(total div ticksPlayed)
+
   # ---- the parser the wasm viewer uses reads its own bytes back ------------
   let reparsed = parseReplayBytes(bytes)
   doAssert reparsed.frames.len == ticksPlayed + 1
