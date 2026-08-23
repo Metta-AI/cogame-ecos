@@ -79,6 +79,38 @@ when isMainModule:
   doAssert player.boardFrame().bodies[0].len ==
     reparsed.frames[0].bodyCount(0)
 
+  # ---- one generation window: the viewer's score IS the sim's --------------
+  # The sim scores generation g over the ticks it played (frame 0 is the
+  # opening state, not a tick) and the viewer re-derives that same window from
+  # the recorded `series.bio`. If the two windows ever differ again, the
+  # scorebug, the end-card and `results.win` stop agreeing on who won.
+  block:
+    var scored = initReplayPlayer(reparsed)
+    let derived = scored.scoreAt[scored.lastTick]
+    for slot in 0 .. 2:
+      let index = ord(sim.roleOf[slot])
+      doAssert derived[index] == results{"scores"}[slot].getFloat(),
+        "slot " & $slot & ": the viewer re-derives " &
+        formatFloat(derived[index], ffDecimal, 6) & " where results.json " &
+        "carries " & formatFloat(results{"scores"}[slot].getFloat(),
+          ffDecimal, 6)
+    # …and the end-card the viewer draws crowns the seat `results.win` does.
+    var viewer = initGlobalViewerState()
+    viewer.jumpEnd = true
+    let ending = scored.advanceReplayFrame(viewer)
+    let card = parseJson(ending.chrome){"over"}
+    doAssert not card.isNil, "the last frame must carry the end-card"
+    for slot in 0 .. 2:
+      let key = RoleTeamKey[sim.roleOf[slot]]
+      doAssert card{"teams"}{key}{"score"}.getFloat() ==
+        results{"scores"}[slot].getFloat(),
+        "the end-card score for " & key & " is not results.scores[" &
+        $slot & "]"
+      if results{"win"}[slot].getBool():
+        doAssert card{"winner"}.getStr() == key or card{"draw"}.getBool(),
+          "the end-card crowns " & card{"winner"}.getStr() &
+          " where results.win crowns slot " & $slot & " (" & key & ")"
+
   # ---- the wasm entry point's whole loop, natively ---------------------------
   # `replay-viewer/ecos_replay.nim` is exactly these three calls; running them
   # here means a broken packet or a bad seek is a test failure rather than a
