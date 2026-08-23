@@ -287,6 +287,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       var simCopy: SimServer
       var prompts: seq[string]
       var kinds: seq[ScriptKind]
+      var absent: seq[bool]
       var seats = @[0, 1, 2]
       withLock stateLock:
         if state.sim.done:
@@ -301,12 +302,14 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         simCopy = state.sim
         prompts = state.prompts
         kinds = state.scripted
+        absent = newSeq[bool](kinds.len)
         ## A seat that never connected has no prompt and no policy behind it,
         ## so it plays the steward baseline rather than costing a model call
         ## on an empty prompt. It rejoins the moment its socket arrives.
         for slot in 0 ..< kinds.len:
           if kinds[slot] == skNone and not state.playerSockets.hasKey(slot):
             kinds[slot] = skSteward
+            absent[slot] = true
 
       ## The slow part — one parallel batch of three requests — runs outside
       ## the lock on the shared sim; only this thread mutates it, so the
@@ -318,7 +321,11 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       withLock stateLock:
         fromTick = state.sim.tick
         for index, slot in seats:
-          let decision = decisions[index]
+          var decision = decisions[index]
+          ## A substituted seat is a FALLBACK, not a declared baseline: no
+          ## policy stood behind that doctrine, and phase 60 counts fallbacks.
+          if slot < absent.len and absent[slot]:
+            decision.source = dsFallback
           let species = state.sim.roleOf[slot]
           logLine("ecos: gen " & $state.sim.generation & " " &
             state.sim.names[slot] & " (" & RoleNames[species] & ") " &
