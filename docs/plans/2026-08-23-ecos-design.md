@@ -123,6 +123,22 @@ A doctrine holds until the next generation. The doctrine in force during generat
 steward default for every seat (the first batch of LLM calls goes out **before** generation 1 —
 see `## Decisions`; if it fails, generation 1 runs on defaults).
 
+**Shipped constants (build 2026-08-23) — four values this table authored and the gate moved.**
+`## Feasibility check` makes `tests/test_feasibility.nim` the enforcement for any constant in
+`## The game`, and these four are what gate (a) accepted (`src/ecos/sim_types.nim`):
+
+| constant | this table | shipped | measured with the table's value |
+|---|---|---|---|
+| `killBase` (rule 6) | 60 | **90** | gate (a) fails: 11/12 seeds, predators reach 0 on one |
+| grazer `herd` default | 40 | **20** | with all three steward defaults restored, gate (a) fails 0/12 — the grazers crash |
+| predator `rest_energy` default | 240 | **200** | as above |
+| predator `birth_threshold` default | 320 | **400** | as above |
+
+Both measurements are reproducible: restore the value in `sim_types.nim` and run
+`nim r -d:release tests/test_feasibility.nim`. The prompts, the manifest's `rules.md` page and
+`tests/test_sim.nim` all read the shipped constants rather than repeating a literal, so they move
+with them.
+
 ### Tick resolution order (exact, numbered)
 
 Each tick runs these steps in this order, over bodies in ascending index order within each species.
