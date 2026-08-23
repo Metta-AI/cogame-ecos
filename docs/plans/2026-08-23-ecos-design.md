@@ -773,8 +773,11 @@ All run in `ci.yml`; the sandbox cannot run any of them locally.
    fails here rather than in a dead replay.
 4. **`tests/test_replay.nim` — end-to-end + strict UTF-8.** Plays a full scripted episode headless,
    writes `results.json` and the replay, then re-reads the replay bytes: `validateUtf8 == -1`
-   (strict), parses as JSON, `protocol == "ecos.replay.v1"`, `frames.len == ticksPlayed`,
-   `series.pop.len == ticksPlayed`, every event tick in `0..ticksPlayed`, at least one `birth`, one
+   (strict), parses as JSON, `protocol == "ecos.replay.v1"`,
+   `frames.len == ticksPlayed + 1`, `series.pop.len == ticksPlayed + 1` (the replay schema above
+   opens with `{"t":0, …}`, the opening state before any tick ran — this item's earlier wording
+   `== ticksPlayed` contradicted that schema; the schema is what the writer, the reader and the
+   viewer implement), every event tick in `0..ticksPlayed`, at least one `birth`, one
    `starve`, one `predation`, ten `generation` events and exactly one `end`, `results.scores.len ==
    3`, `results.reason` in `{complete, deadline, forfeit}`, file size `< 8 MiB`. A seat is fed a
    `say`/`notes` of multi-byte runes exactly at the 64/400 caps and the recorded strings are
