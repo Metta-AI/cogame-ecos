@@ -2327,7 +2327,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var gens = s.gens || 10;
     var tpg = s.tpg || 60;
     var gen = Math.min(gens, Math.max(1, s.gen || (Math.floor(s.t / tpg) + 1)));
-    var lastTick = (s.mx != null ? s.mx : gens * tpg);
+    // The CONFIGURED episode length (`mt`), not `mx`: on a replay `mx` is the
+    // last recorded tick, so a collapse at tick 137 of a 600-tick episode used
+    // to read "tick 42 of 137". `mx` stays the scrubber's extent.
+    var episodeTicks = (s.mt != null ? s.mt : (s.mx != null ? s.mx : gens * tpg));
     if (s.ph === 'gameover') {
       timeEl.textContent = 'GEN ' + gen + ' / ' + gens;
       var ending = (s.over && s.over.ending) || '';
@@ -2338,7 +2341,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
             : (ending || 'episode over'));
     } else {
       timeEl.textContent = 'GEN ' + gen + ' / ' + gens;
-      capEl.textContent = 'tick ' + s.t + ' of ' + lastTick;
+      capEl.textContent = 'tick ' + s.t + ' of ' + episodeTicks;
     }
     clk.classList.remove('tiebreak-warn');
   }
