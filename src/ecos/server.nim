@@ -497,6 +497,15 @@ proc buildRouter(): Router =
 proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   if config.tokens.len != config.players.len:
     raise newException(EcosError, "tokens and players must align")
+  ## Ecos is three-wide everywhere that matters — the species, the role
+  ## rotation, `sim.roleOf`, and the seat vector the game loop decides over —
+  ## while `numAgents` is a SEPARATE config field that can read 3 while the
+  ## platform sends two tokens. Fail here, legibly, rather than on the game
+  ## thread's first `scriptedKinds[2]`, where an IndexDefect kills the loop
+  ## and the episode hangs to the platform timeout with no artifacts.
+  if config.players.len != SeatAliases.len:
+    raise newException(EcosError, "Ecos is a three-seat game; the platform " &
+      "sent " & $config.players.len & " seats")
   state.config = config
   state.sim = newSim(config)
   state.prompts = newSeq[string](config.players.len)
