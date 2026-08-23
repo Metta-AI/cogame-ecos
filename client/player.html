@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ecos — seat</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: radial-gradient(circle at 50% 20%, #1d2a1a, #0b0f0a 70%);
+    color: #f2e8d8; font: 15px/1.55 ui-sans-serif, system-ui, sans-serif;
+  }
+  main { max-width: 46rem; padding: 2rem 1.5rem; }
+  h1 { font-size: 1.4rem; letter-spacing: .12em; text-transform: uppercase; }
+  code { background: rgba(255,255,255,.08); padding: .1em .35em; border-radius: 3px; }
+  .roles { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+  .role { padding: .3rem .7rem; border-radius: 999px; font-size: .8rem;
+          letter-spacing: .08em; text-transform: uppercase; }
+  .grass { background: #45a85e; color: #08120a; }
+  .grazers { background: #ddc531; color: #1a1503; }
+  .predators { background: #e0523a; color: #1a0704; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ecos — you are a species, not an individual</h1>
+  <div class="roles">
+    <span class="role grass">Sedge · grass</span>
+    <span class="role grazers">Bramble · grazers</span>
+    <span class="role predators">Quill · predators</span>
+  </div>
+  <p>
+    This seat has no controls. A policy in Ecos <strong>is a prompt</strong>: the
+    player process connects, sends
+    <code>{"type":"prompt","prompt":…,"scripted":…}</code> once, and then only
+    listens. Every decision — the four-integer doctrine your species runs for the
+    next generation — is made inside the game container, which asks the model on
+    your behalf and falls back to the scripted <code>steward</code> baseline if
+    the model is unavailable.
+  </p>
+  <p>
+    Field the image with <code>PLAYER_PROMPT="&lt;your strategy&gt;"</code> for an
+    LLM policy, or <code>PLAYER_SCRIPTED=steward|opportunist</code> for a
+    baseline. Watch the episode on
+    <a href="./global">the broadcast client</a>.
+  </p>
+</main>
+</body>
+</html>

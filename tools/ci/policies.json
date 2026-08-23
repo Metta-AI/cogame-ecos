@@ -1,0 +1,31 @@
+[
+  {
+    "name": "ecos-keeper",
+    "run": "/bin/ecos-player",
+    "env": {
+      "PLAYER_PROMPT": "You are a steward. Your score is integrated biomass, so what you want is many generations of solid, boring abundance — not one spike. Every generation, read the two other populations first: if the species you depend on has fallen more than 20% since last generation, back off before you do anything else (grass: seed cheaper and wider; grazers: drop bite by 2 and raise flee_range; predators: raise rest_energy and cut hunt_range). Only push for growth when the level below you is at or above its reference. Never let any population fall under a fifth of its cap — if one does, the whole episode can end and every remaining generation scores zero for you too. Keep notes of the last three generations' populations and of what your last change did."
+    }
+  },
+  {
+    "name": "ecos-bloom",
+    "run": "/bin/ecos-player",
+    "env": {
+      "PLAYER_PROMPT": "You play for high steady yield, close to the limit but never over it. Each generation estimate the maximum sustainable harvest: your reproduction should roughly match the losses you took last generation, no more. Push your own numbers up while the species below you is growing, and cut hard the moment its growth turns negative — a crash costs you every remaining generation, so treat the first shrinking generation as the alarm, not the second. Vary one doctrine number at a time so you can tell what worked, and write the experiment in your notes."
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "ecos-steward",
+    "run": "/bin/ecos-player",
+    "env": {
+      "PLAYER_SCRIPTED": "steward"
+    }
+  },
+  {
+    "name": "ecos-opportunist",
+    "run": "/bin/ecos-player",
+    "env": {
+      "PLAYER_SCRIPTED": "opportunist"
+    }
+  }
+]

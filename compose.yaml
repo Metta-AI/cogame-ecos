@@ -1,0 +1,14 @@
+# One service, one image: the game binary (/bin/ecos) and the thin player
+# process (/bin/ecos-player) ship together, so a policy is the same image
+# with a different env. The service NAME is the single source of the
+# manifest's image placeholder: services.ecos -> {{ECOS_IMAGE}}
+# (`coworld build` hard-fails anything else; tests/test_manifest.nim asserts
+# the derivation).
+services:
+  ecos:
+    image: coworld-ecos:latest
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host

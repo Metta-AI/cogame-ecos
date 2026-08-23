@@ -1,0 +1,14 @@
+# Build output.
+nim.cfg
+nimcache/
+*.exe
+*.out
+/dist/
+/build/
+/tmp/
+replay-viewer/dist/
+
+# Python + editor scratch.
+__pycache__/
+*.pyc
+.DS_Store
