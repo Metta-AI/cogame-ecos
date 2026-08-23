@@ -151,6 +151,33 @@ when isMainModule:
   doAssert standard{"capPredators"}.getInt() == defaults.capPredators
   doAssert manifest{"game"}{"name"}.getStr() == "ecos"
 
+  # ---- the harsh-spring variant is declared in exactly one place -----------
+  # `tests/helpers.nim`'s `harshSpringConfig` is what gate (a) of
+  # `tests/test_feasibility.nim` actually runs. Nothing else ties it to the
+  # manifest block the platform ships, so an edit to either alone would ship
+  # a variant the ecological oracle never gated.
+  block:
+    var harsh: JsonNode = nil
+    for variant in manifest{"variants"}:
+      if variant{"id"}.getStr() == "harsh-spring":
+        harsh = variant{"game_config"}
+    doAssert not harsh.isNil
+    let gated = harshSpringConfig(1)
+    for (name, shipped) in [
+      ("initGrass", gated.initGrass),
+      ("initGrazers", gated.initGrazers),
+      ("initPredators", gated.initPredators),
+      ("grassGain", gated.grassGain),
+      ("generations", gated.generations),
+      ("ticksPerGeneration", gated.ticksPerGeneration),
+      ("capGrass", gated.capGrass),
+      ("capGrazers", gated.capGrazers),
+      ("capPredators", gated.capPredators)
+    ]:
+      doAssert harsh{name}.getInt() == shipped,
+        "harsh-spring." & name & " is " & $harsh{name}.getInt() &
+        " in the manifest and " & $shipped & " in the config gate (a) runs"
+
   # ---- policies.json: two prompt champions plus the two baselines ----------
   let policies = parseJson(readFile(root / "tools" / "ci" / "policies.json"))
   doAssert policies.len == 4
