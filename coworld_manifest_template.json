@@ -261,7 +261,8 @@
           "description": "Population on the last played tick, by slot."
         },
         "generations": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Generations scored. A generation cut short by a collapse is closed, scored against the full denominator and counted here."
         },
         "births": {
           "type": "array",

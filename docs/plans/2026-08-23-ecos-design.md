@@ -600,7 +600,17 @@ player socket → broadcast the last global frame → `sleep 500ms` → write
 `scores[i] = S_i` (the capped integrated-biomass sum, higher better); `biomass[i]` = the mean of
 `B_i(t)` over the ticks actually played, rounded to an integer; `population[i]` = that species'
 population on the last played tick; `births[i]`, `starved[i]` = lifetime counts for that species;
-`predation` = total grazers eaten; `generations` = generations completed.
+`predation` = total grazers eaten; `generations` = generations SCORED.
+
+**Shipped deviation (build 2026-08-23, `src/ecos/sim.nim`):** this note wrote `generations` =
+"generations completed". The sim counts generations *scored*, which differs on exactly one
+ending: a collapse lands mid-generation, and `step` closes that partial window and scores it
+against the full `ticksPerGeneration x R_i` denominator before it calls `finish`, so a collapse
+at tick 137 of a 60-tick generation reports `generations: 3` for two full windows and one
+partial. The counter is the same one the end condition and `runGeneration` read, and the partial
+window is scored by the sim, by the viewer's re-derivation (`replays.nim`'s `precompute`) and by
+the feasibility summariser alike, so the field is defined as what all four already do rather
+than made to disagree with them.
 
 ---
 
