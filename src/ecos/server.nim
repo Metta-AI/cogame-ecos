@@ -39,7 +39,6 @@ type
     socketSlots: Table[WebSocket, int]
     globalSockets: HashSet[WebSocket]
     viewers: Table[WebSocket, GlobalViewerState]
-    trackers: Table[WebSocket, BroadcastTracker]
     started: bool
     finished: bool
 
@@ -47,7 +46,6 @@ var
   stateLock: Lock
   state: GameState
   gameServer: Server
-  shuttingDown: bool
 
 initLock(stateLock)
 
@@ -222,7 +220,6 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
   ## Lantern's grace: hosted certification pings the global websocket AFTER
   ## the pods start, and a fast scripted episode has already exited by then.
   ## The runner waits on process exit anyway, so the grace is free.
-  shuttingDown = true
   logLine("ecos: artifacts written; holding /healthz and /global for " &
     $grace & "s")
   sleep(grace * 1000)

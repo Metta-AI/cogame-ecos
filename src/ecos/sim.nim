@@ -36,7 +36,6 @@ type
     names*: array[3, string]      ## in-game aliases, by slot
     policyNames*: seq[string]     ## spectator-side policy names, by slot
     notes*: array[3, string]
-    says*: array[3, string]
     events*: seq[EcosEvent]
     frames*: seq[Frame]
     seriesPop*: seq[array[3, int]]
@@ -137,7 +136,6 @@ proc applyDoctrine*(
   ## Out-of-range values are already clamped by the caller; `clamped` says so.
   sim.doctrine[species] = fields
   let slot = sim.seatOf[species]
-  sim.says[slot] = say
   if notes.len > 0:
     sim.notes[slot] = notes
   sim.events.add(EcosEvent(
