@@ -422,8 +422,10 @@ proc decisionFrom*(client: LlmClient, species: Species, response: Response,
 
 proc scriptedDecision*(sim: SimServer, species: Species,
     kind: ScriptKind): Decision =
+  let checked = scriptedDoctrineChecked(sim, species, kind)
   Decision(
-    fields: scriptedDoctrine(sim, species, kind),
+    fields: checked.fields,
+    clamped: checked.clamped,
     source: (if kind == skNone: dsFallback else: dsScripted)
   )
 

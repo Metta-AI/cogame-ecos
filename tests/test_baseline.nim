@@ -40,6 +40,7 @@ proc checkDoctrine(species: Species, fields: Doctrine, label: string) =
 
 when isMainModule:
   var slowest = 0.0
+  var stewardClamps = 0
   for kind in [skSteward, skOpportunist]:
     for seed in 1 .. Seeds:
       let label = $kind & " seed " & $seed
@@ -47,11 +48,13 @@ when isMainModule:
       while not sim.done:
         for species in Species:
           let started = epochTime()
-          let fields = scriptedDoctrine(sim, species, kind)
+          let decided = scriptedDoctrineChecked(sim, species, kind)
           let elapsed = epochTime() - started
           if elapsed > slowest: slowest = elapsed
-          checkDoctrine(species, fields, label)
-          sim.applyDoctrine(species, fields, dsScripted, false, "", "", 0)
+          checkDoctrine(species, decided.fields, label)
+          if kind == skSteward and decided.clamped: inc stewardClamps
+          sim.applyDoctrine(species, decided.fields, dsScripted,
+            decided.clamped, "", "", 0)
         # Step the generation one tick at a time so the invariants are
         # checked on EVERY tick, not only at the boundary.
         let target = sim.generationsPlayed + 1
@@ -61,12 +64,19 @@ when isMainModule:
       doAssert sim.tick > 0, label & ": no ticks were played"
       doAssert sim.reason in ["complete", "deadline", "forfeit"],
         label & ": illegal reason " & sim.reason
-      # Every doctrine event the episode recorded is legal too.
+      # Every doctrine event the episode recorded is legal too — that is what
+      # "legal by construction" means, and the clamp is HOW: the recorded
+      # `clamped` flag is the baseline's own, not a literal passed in here.
       for event in sim.events:
         if event.kind == ekDoctrine:
           checkDoctrine(event.species, event.fields, label & " event")
-          doAssert not event.clamped,
-            label & ": a scripted decision should never need clamping"
+  # The steward's "recruit when thin" correction takes the grazer
+  # birth_threshold from 90 to 70 on the standard opening, which the range
+  # minimum of 80 pulls back up: the baseline is legal BECAUSE of the clamp,
+  # so a scripted decision that never reports one means the flag went dead.
+  doAssert stewardClamps > 0,
+    "the steward never reported a clamp; the recorded `clamped` flag is not " &
+    "the baseline's own"
   doAssert slowest < 0.001,
     "a baseline decision took " & formatFloat(slowest * 1000.0, ffDecimal, 3) &
     " ms; the budget is 1 ms per generation"

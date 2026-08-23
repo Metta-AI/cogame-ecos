@@ -28,35 +28,46 @@ proc baseDoctrine*(kind: ScriptKind, species: Species): Doctrine =
   of skOpportunist: OpportunistDoctrine[species]
   else: StewardDoctrine[species]
 
-proc correct(sim: SimServer, species: Species, base: Doctrine): Doctrine =
+proc correct(sim: SimServer, species: Species, base: Doctrine):
+    tuple[fields: Doctrine, clamped: bool] =
   ## The two closed-loop corrections, applied in this order:
   ##   1. recruit when thin  — my population below 0.4 x my cap
   ##   2. back off when my food is thin — the species I eat below 0.4 x its
   ##      cap (grass reads grazer PRESSURE instead: grazers above 0.6 x cap)
-  result = base
+  var fields = base
   let myCap = sim.capOf(species)
   if sim.population(species) * 10 < 4 * myCap:
     case species
-    of spGrass: result[0] -= 20
-    of spGrazers: result[0] -= 20
-    of spPredators: result[0] -= 40
+    of spGrass: fields[0] -= 20
+    of spGrazers: fields[0] -= 20
+    of spPredators: fields[0] -= 40
   case species
   of spGrass:
     if sim.population(spGrazers) * 10 > 6 * sim.capOf(spGrazers):
-      result[1] += 40
-      result[2] -= 10
+      fields[1] += 40
+      fields[2] -= 10
   of spGrazers:
     if sim.population(spGrass) * 10 < 4 * sim.capOf(spGrass):
-      result[1] -= 4
-      result[2] += 40
+      fields[1] -= 4
+      fields[2] += 40
   of spPredators:
     if sim.population(spGrazers) * 10 < 4 * sim.capOf(spGrazers):
-      result[1] -= 60
-      result[2] += 80
-  result = clampDoctrine(species, result).fields
+      fields[1] -= 60
+      fields[2] += 80
+  clampDoctrine(species, fields)
+
+proc scriptedDoctrineChecked*(sim: SimServer, species: Species,
+    kind: ScriptKind): tuple[fields: Doctrine, clamped: bool] =
+  ## The baseline's doctrine for the coming generation, and whether a
+  ## correction drove a field out of its declared range on the way. The
+  ## baseline is legal because of that clamp, not in spite of it: the
+  ## steward's "recruit when thin" takes a grazer birth_threshold of 90 to 70,
+  ## which the range minimum of 80 pulls back up. The flag is recorded on the
+  ## `doctrine` event, so the replay says which decisions were corrected.
+  correct(sim, species, baseDoctrine(
+    (if kind == skNone: skSteward else: kind), species))
 
 proc scriptedDoctrine*(sim: SimServer, species: Species,
     kind: ScriptKind): Doctrine =
   ## The baseline's doctrine for the coming generation. Always in range.
-  correct(sim, species, baseDoctrine(
-    (if kind == skNone: skSteward else: kind), species))
+  scriptedDoctrineChecked(sim, species, kind).fields
