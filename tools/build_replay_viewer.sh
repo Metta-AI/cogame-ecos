@@ -14,7 +14,16 @@ if [[ "${requested_output}" != /* || "$(basename "${requested_output}")" != "sta
   exit 1
 fi
 
-output_parent="$(cd "$(dirname "${requested_output}")" && pwd -P)"
+# `coworld build` hands an output path whose parent it has already made; a bare
+# `ci.yml` invocation (dist/static-replay-viewer) does not, and the `cd` below
+# is fatal on a missing parent. Create it first, but only inside the repo, so
+# the containment check below still owns the decision.
+requested_parent="$(dirname "${requested_output}")"
+if [[ "${requested_parent}" == "${repo_dir}"/* ]]; then
+  mkdir -p "${requested_parent}"
+fi
+
+output_parent="$(cd "${requested_parent}" && pwd -P)"
 output_dir="${output_parent}/static-replay-viewer"
 if [[ "${output_dir}" != "${repo_dir}"/* || -L "${output_dir}" ]]; then
   echo "unsafe bundle output: ${requested_output}" >&2
