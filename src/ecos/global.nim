@@ -271,6 +271,12 @@ proc spriteFor*(id: int): BakedSprite =
   buildSpriteCache()
   spriteCache[id]
 
+proc bodyHalf*(speciesIndex: int): int =
+  ## Half the body sprite's side, so a body is centred on its sim position
+  ## whatever size the nano-banana sprites were split at (the board draws
+  ## 1:1, so the PNG size IS the world size).
+  spriteFor(bodySpriteId(speciesIndex, 0, 0, 0)).width div 2
+
 # ---- packet building ---------------------------------------------------------
 
 proc addBaked(packet: var seq[uint8], id: int, label: string) =
@@ -371,7 +377,7 @@ proc buildBoardPacket*(
         let flip = if (index * 7 + body.x) mod 2 == 0: 0 else: 1
         spriteId = bodySpriteId(speciesIndex, pose, flip,
           energyTint(body.energy, ceiling))
-        half = (if speciesIndex == 1: 14 else: 20)
+        half = bodyHalf(speciesIndex)
       let objectId = base + index
       live.add(objectId)
       result.addObject(objectId, body.x - half, body.y - half, z,
@@ -395,7 +401,7 @@ proc buildBoardPacket*(
     of fkFade:
       let stage = clampInt(item.age * 3 div max(1, FadeTicks), 0, 2)
       let half = (if item.speciesIndex == 0: 16
-                  elif item.speciesIndex == 1: 14 else: 20)
+                  else: bodyHalf(item.speciesIndex))
       result.addObject(objectId, item.x - half, item.y - half, FxZ - 1,
         MapLayerId, FadeSpriteBase + item.speciesIndex * 3 + stage)
 

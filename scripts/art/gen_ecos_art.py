@@ -11,12 +11,16 @@ Run it from the repo root:
 It writes:
     data/art/soil_0..3.png        the tiled meadow bake (96x96, seamless)
     data/art/tuft_1..4.png        the four grass energy stages (24..48 px)
-    data/art/grazer_idle|run.png  the grazer, 28 px, facing +x
-    data/art/predator_idle|run.png the predator, 40 px, facing +x
+
+NO LONGER OWNED HERE (nano-banana renders; see split_creature_sheet.py):
+    data/art/grazer_idle|run.png, data/art/predator_idle|run.png and the
+    client/art/lockerroom/{grazer,predator}.webp portraits come from
+    scripts/art/source/creatures_sheet.png via split_creature_sheet.py.
+    This generator no longer writes them.
     data/art/sparkle.png          the birth burst, 16 px
     data/art/splash.png           the predation splash, 20 px
     client/art/lockerroom/bg.jpg  the dawn-meadow loading plate
-    client/art/lockerroom/{grass,grazer,predator}.webp   species portraits
+    client/art/lockerroom/grass.webp   the grass species portrait
 
 Determinism: one seeded random.Random, no time, no set iteration. Re-running
 must produce byte-identical files, which is what makes the committed art
@@ -291,16 +295,14 @@ def main() -> None:
         save(soil_tile(i), ART / f"soil_{i}.png")
     for stage in range(4):
         save(tuft(stage), ART / f"tuft_{stage + 1}.png")
-    save(grazer(False), ART / "grazer_idle.png")
-    save(grazer(True), ART / "grazer_run.png")
-    save(predator(False), ART / "predator_idle.png")
-    save(predator(True), ART / "predator_run.png")
+    # grazer_*/predator_* sprites: owned by split_creature_sheet.py
     save(sparkle(), ART / "sparkle.png")
     save(splash(), ART / "splash.png")
     background = meadow_background()
     background.save(LOCKER / "bg.jpg", quality=86, optimize=True)
     print("wrote", (LOCKER / "bg.jpg").relative_to(ROOT))
-    for kind in ("grass", "grazer", "predator"):
+    # grazer/predator portraits: owned by split_creature_sheet.py
+    for kind in ("grass",):
         path = LOCKER / f"{kind}.webp"
         portrait(kind).save(path, lossless=True)
         print("wrote", path.relative_to(ROOT))

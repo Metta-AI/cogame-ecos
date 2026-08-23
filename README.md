@@ -108,8 +108,14 @@ where you will hear about it — not in a dead replay.
 
 ```bash
 python3 -m pip install "pillow>=10"
-python3 scripts/art/gen_ecos_art.py
+python3 scripts/art/gen_ecos_art.py          # soil, tufts, fx, lockerroom bg + grass
+python3 scripts/art/split_creature_sheet.py  # grazer/predator sprites + portraits
 ```
 
-Deterministic and committed, so the art is reviewable in a diff rather than
-dropped in as binaries.
+The soil, tufts and fx are deterministic and committed, so that art is
+reviewable in a diff rather than dropped in as binaries. The grazer and
+predator are nano-banana (Gemini image) renders of the Softmax cog styled as
+each animal — predator: dark chassis, red accents, fangs and claws; grazer:
+cream chassis, antlers/ears and a grass-green saddle-pack. The source sheet
+lives at `scripts/art/source/creatures_sheet.png` and the split script keys,
+crops and sizes it; the board draws 1:1, so the PNG size is the body size.
