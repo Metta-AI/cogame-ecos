@@ -298,6 +298,12 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         simCopy = state.sim
         prompts = state.prompts
         kinds = state.scripted
+        ## A seat that never connected has no prompt and no policy behind it,
+        ## so it plays the steward baseline rather than costing a model call
+        ## on an empty prompt. It rejoins the moment its socket arrives.
+        for slot in 0 ..< kinds.len:
+          if kinds[slot] == skNone and not state.playerSockets.hasKey(slot):
+            kinds[slot] = skSteward
 
       ## The slow part — one parallel batch of three requests — runs outside
       ## the lock on the shared sim; only this thread mutates it, so the
