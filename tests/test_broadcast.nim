@@ -18,7 +18,7 @@ proc chromeOf(sim: SimServer, withLead: bool): JsonNode =
     generations: sim.config.generations,
     ticksPerGeneration: sim.config.ticksPerGeneration,
     playing: true,
-    speed: 1,
+    speed: 1.0,
     transportEnabled: true,
     over: sim.done,
     reason: sim.reason,
@@ -189,6 +189,8 @@ when isMainModule:
 
   # ---- the wire constants the chrome reads ---------------------------------
   doAssert "window.CTF_WIRE={" in WireConstantsJs
+  doAssert "speeds:[0.5,1,2,3,4,8,16]" in WireConstantsJs,
+    "the wire speeds must lead with the replay-only 0.5x"
   doAssert "chromeSpriteId:" & $BroadcastChromeSpriteId in WireConstantsJs
   doAssert "fps:24" in WireConstantsJs
 
