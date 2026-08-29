@@ -249,6 +249,37 @@ when isMainModule:
     doAssert drawn > 1000, "the viewer drew only " & $drawn & " objects"
     doAssert chromeSeen == 120, "every frame must carry the chrome label"
 
+  # ---- half speed is a replay-only crawl -------------------------------------
+  # The fleet-wide 1/2x replay speed: command '5' selects the ReplayHalfSpeed
+  # sentinel, the chrome's "sp" shows 0.5, and advanceReplayFrame spends one
+  # tick every OTHER frame (halfPhase parity).
+  block:
+    var half = initReplayPlayer(reparsed)
+    var viewer = initGlobalViewerState()
+    viewer.applyGlobalViewerMessage(blobFromSpriteChat("5"))
+    doAssert viewer.speed == ReplayHalfSpeed, "'5' must select 1/2x"
+    doAssert viewer.displaySpeed() == 0.5,
+      "the chrome speed at 1/2x is 0.5, got " & $viewer.displaySpeed()
+    doAssert not half.halfPhase
+    let odd = half.advanceReplayFrame(viewer)
+    doAssert half.tick == 1, "the odd frame at 1/2x spends one tick"
+    doAssert parseJson(odd.chrome){"sp"}.getFloat() == 0.5,
+      "the chrome frame's sp must carry 0.5 at 1/2x"
+    discard half.advanceReplayFrame(viewer)
+    doAssert half.tick == 1, "the even frame at 1/2x spends no tick"
+    for _ in 0 ..< 10:
+      discard half.advanceReplayFrame(viewer)
+    doAssert half.tick == 6, "10 more frames advance 5 ticks at 1/2x"
+    viewer.applyGlobalViewerMessage(blobFromSpriteChat("+"))
+    doAssert viewer.speed == 1, "'+' from 1/2x lands on 1x"
+    viewer.applyGlobalViewerMessage(blobFromSpriteChat("-"))
+    doAssert viewer.speed == ReplayHalfSpeed, "'-' from 1x lands on 1/2x"
+    viewer.applyGlobalViewerMessage(blobFromSpriteChat("-"))
+    doAssert viewer.speed == ReplayHalfSpeed, "1/2x is the floor"
+    viewer.applyGlobalViewerMessage(blobFromSpriteChat("2"))
+    doAssert viewer.speed == 2 and viewer.displaySpeed() == 2.0,
+      "the integer speeds still work after 1/2x"
+
   # ---- the multi-byte cap fixture -------------------------------------------
   # Exactly at the cap in RUNES, well over it in bytes: a byte cut would slice
   # a code point in half and put invalid UTF-8 in the replay.

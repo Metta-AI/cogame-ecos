@@ -26,6 +26,10 @@ const
     ## that survives a hosted replay.
   TargetFps* = 24
   PlaybackSpeeds* = [1, 2, 3, 4, 8, 16]
+  ReplayHalfSpeed* = 0
+    ## `speed` sentinel for the replay-only 1/2x playback (command '5'):
+    ## one tick is spent every other presentation frame (halfPhase parity,
+    ## see `replays.nim`'s `advanceReplayFrame`).
 
   SoilTile* = 96
   SoilVariants = 4
@@ -84,6 +88,7 @@ type
     ## transport, driven by the chrome's command channel
     playing*: bool
     speed*: int
+      ## Integer playback multiplier, or ReplayHalfSpeed (0) for 1/2x.
     looping*: bool
     replaySeekTick*: int
     stepBack*: bool
@@ -102,6 +107,12 @@ proc initGlobalViewerState*(): GlobalViewerState =
     looping: false,
     replaySeekTick: -1
   )
+
+proc displaySpeed*(state: GlobalViewerState): float =
+  ## The speed the chrome shows: 0.5 at the half-speed sentinel, else the
+  ## integer multiplier.
+  if state.speed == ReplayHalfSpeed: 0.5
+  else: float(state.speed)
 
 proc boardRenderScaleFor*(fieldW, fieldH: int): int =
   ## Ecos draws its field 1:1 — a world unit is a board pixel. Kept as a
@@ -138,10 +149,13 @@ proc applyGlobalViewerMessage*(state: var GlobalViewerState, message: string) =
       of '2': state.speed = 2
       of '3': state.speed = 3
       of '4': state.speed = 4
+      of '5': state.speed = ReplayHalfSpeed
       of '8': state.speed = 8
       of '6': state.speed = 16
-      of '+': state.speed = min(16, state.speed * 2)
-      of '-': state.speed = max(1, state.speed div 2)
+      of '+': state.speed = clamp(state.speed * 2, 1, 16)
+      of '-':
+        # 1 div 2 == ReplayHalfSpeed: '-' from 1x lands on 1/2x, the floor.
+        state.speed = state.speed div 2
       else: discard
 
 # ---- art ---------------------------------------------------------------------
@@ -506,7 +520,10 @@ proc collectFx*(events: seq[JsonNode], tick: int): seq[FxItem] =
       discard
 
 const WireConstantsJs* =
-  "window.CTF_WIRE={speeds:[" & $PlaybackSpeeds[0] & "," & $PlaybackSpeeds[1] &
+  # 0.5 is the replay-only half speed (ReplayHalfSpeed, command '5');
+  # it rides ahead of the engine's integer PlaybackSpeeds.
+  "window.CTF_WIRE={speeds:[0.5," &
+  $PlaybackSpeeds[0] & "," & $PlaybackSpeeds[1] &
   "," & $PlaybackSpeeds[2] & "," & $PlaybackSpeeds[3] & "," &
   $PlaybackSpeeds[4] & "," & $PlaybackSpeeds[5] & "]" &
   ",fps:" & $TargetFps &

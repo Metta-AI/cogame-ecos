@@ -141,6 +141,9 @@ type
     ## re-simulation and no native/wasm divergence to chase.
     doc*: ReplayDoc
     tick*: int
+    halfPhase*: bool
+      ## Frame parity while at 1/2x speed (ReplayHalfSpeed): ticks advance
+      ## only on the odd frames, toggled once per advanceReplayFrame frame.
     accumulated*: int
     desat*: seq[int]                  ## per-tick silent-spring ramp, 0..DesatTicks
     scoreAt*: seq[array[3, float]]    ## running per-species score, by tick
@@ -245,7 +248,7 @@ proc chromeFrame*(player: var ReplayPlayer, view: GlobalViewerState,
     generations: doc[].config.generations,
     ticksPerGeneration: doc[].config.ticksPerGeneration,
     playing: view.playing,
-    speed: view.speed,
+    speed: view.displaySpeed(),
     looping: view.looping,
     transportEnabled: true,
     over: tick >= player.lastTick,
@@ -299,6 +302,7 @@ proc advanceReplayFrame*(
 ): tuple[frame: BoardFrame, fx: seq[FxItem], desat: int, chrome: string] =
   ## One playback frame: apply the transport commands, move the playhead,
   ## and hand back everything the board and the chrome need.
+  player.halfPhase = not player.halfPhase
   let last = player.lastTick
   var previous = player.tick
   var jumped = false
@@ -330,7 +334,13 @@ proc advanceReplayFrame*(
       else:
         view.playing = false
     else:
-      player.tick = min(last, player.tick + max(1, view.speed))
+      let steps =
+        if view.speed == ReplayHalfSpeed:
+          # 1/2x: spend one tick only every other frame (halfPhase parity).
+          (if player.halfPhase: 1 else: 0)
+        else:
+          max(1, view.speed)
+      player.tick = min(last, player.tick + steps)
   if jumped:
     previous = player.tick
   let stepped =

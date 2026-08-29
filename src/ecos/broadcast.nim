@@ -22,7 +22,9 @@ type
     tick*, maxTick*, startTick*: int
     generation*, generations*, ticksPerGeneration*: int
     playing*: bool
-    speed*: int
+    speed*: float
+      ## The speed the chrome shows: 0.5 while the replay-only 1/2x
+      ## (ReplayHalfSpeed) is selected, else the integer multiplier.
     looping*, skipLulls*, fastForward*, transportEnabled*: bool
     over*: bool
     reason*, ending*: string
