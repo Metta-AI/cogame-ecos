@@ -26,6 +26,20 @@ uv run python -m metta_posttrain.train --dataset /tmp/ecos-standard \
 ```
 
 The dataset imitates scripted play; its loss does not measure policy quality.
-Ecos's four bounded integer doctrine fields could support a factorized
-discrete reinforcement learning codec, but the current Metta RL and PufferLib
-bridges do not expose its action and observation.
+
+For native PufferLib reinforcement learning, compile the persistent decision
+bridge and pass it to Metta's `recipes.external.coworld.train` recipe:
+
+```bash
+nim c -d:release --path:src -o:ecos-train-bridge tools/train_bridge.nim
+uv run ./tools/run.py recipes.external.coworld.train \
+  'command=["/absolute/path/to/ecos-train-bridge","/absolute/path/to/coworld_manifest_template.json","standard"]' \
+  players=3 total_timesteps=100000
+```
+
+Replace `standard` with `harsh-spring` for that certified variant. The bridge
+uses player-visible state only. It exposes 204 numeric observations and four
+masked action heads for the exact native doctrine fields. Head widths are
+251, 361, 401, and 101 for every seat. The steward provides opponent play and
+optional teacher labels. Metta recipe support is in PR #24679, stacked on
+#24573.

@@ -101,6 +101,11 @@ jobs:
           cat nim.cfg
           echo "::endgroup::"
 
+      - name: Test training bridge
+        run: |
+          nim c -d:release --path:src -o:/tmp/ecos-train-bridge tools/train_bridge.nim
+          python3 tools/test_train_bridge.py /tmp/ecos-train-bridge
+
       - name: Run tests
         # Every tests/*.nim runs twice: debug (range/overflow checks, stack
         # traces) and -d:release (release-only compile errors and codegen bugs
