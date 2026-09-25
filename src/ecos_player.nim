@@ -1,20 +1,16 @@
-## Ecos player: a policy is just a prompt.
+## Ecos player: scripted, prompt, or Jev policy over a private observation.
 ##
-## Forked from `cogame-bullwhip/src/bullwhip_player.nim`. Connects, delivers
-## its prompt once (and again after the welcome, which guards the
-## slot-registration race), then only listens. Every decision is made inside
-## the GAME container, which is what makes one parallel batch of three
-## requests per generation possible.
+## The game requests one complete doctrine per generation from each seat.
 ##
-## PLAYER_SCRIPTED=steward|opportunist registers the seat as a built-in
-## baseline instead; the server plays those deterministically, no LLM.
+## PLAYER_SCRIPTED=steward|opportunist selects a local baseline.
 ##
 ## To field your own policy, reuse this image and set PLAYER_PROMPT:
 ##   coworld upload-policy <ecos-image> --name my-ecos \
 ##     --run /bin/ecos-player --secret-env PLAYER_PROMPT="<your strategy>"
 
-import std/[json, options, os, strutils]
+import std/[json, options, os, strutils, times]
 import whisky
+import ecos/[sim_types, scripted, llm, jev_policy]
 
 const DefaultPrompt = """
 You are a steward. Your score is integrated biomass, so what you want is many
@@ -34,16 +30,20 @@ when isMainModule:
   var prompt = getEnv("PLAYER_PROMPT")
   if prompt.len == 0:
     prompt = DefaultPrompt
-  let scripted = getEnv("PLAYER_SCRIPTED").strip()
-
-  proc promptFrame(): string =
-    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted}
+  let scriptKind = parseScriptKind(getEnv("PLAYER_SCRIPTED"))
+  let kind =
+    if scriptKind != skNone: "scripted"
+    elif getEnv("PLAYER_POLICY_KIND").strip() == "jev": "jev"
+    else: "prompt"
+  let client =
+    if kind == "prompt":
+      newLlmClient(parseInt(getEnv("PLAYER_MAX_OUTPUT_TOKENS", "900")),
+        getEnv("PLAYER_MODEL", "claude-haiku-4-5"))
+    else: nil
 
   echo "ecos player: connecting to game"
   let socket = newWebSocket(url)
-  socket.send(promptFrame())
-  echo "ecos player: prompt delivered (", prompt.len, " chars",
-    (if scripted.len > 0: ", scripted " & scripted else: ""), ")"
+  echo "ecos player: policy ", kind
 
   ## whisky's receiveMessage RAISES on a close or truncated frame (only a
   ## timeout returns none), and mummy's send only queues — the game's
@@ -66,9 +66,43 @@ when isMainModule:
           echo "ecos player: seated at slot ", payload{"slot"}.getInt(),
             " as ", payload{"name"}.getStr(),
             " (", payload{"role"}.getStr(), ")"
-          ## Re-deliver the prompt after the welcome, in case the first send
-          ## raced the server's slot registration.
-          socket.send(promptFrame())
+        of "decision":
+          if payload["protocol"].getStr() != PlayerProtocol:
+            raise newException(EcosError, "unexpected player protocol")
+          let view = payload["view"]
+          let species = speciesFromName(view["role"].getStr())
+          let generation = payload["generation"].getInt()
+          let started = epochTime()
+          let timeoutSeconds = max(1,
+            payload["timeout_ms"].getInt() div 1000 - 1)
+          var source = "scripted"
+          var answer: JsonNode
+          if kind == "scripted":
+            let fields = scriptedDoctrineFromView(view, scriptKind).fields
+            answer = %*{"doctrine": doctrineJson(species, fields),
+              "say": "", "notes": ""}
+          elif (kind == "prompt" and client.disabled) or
+              (kind == "jev" and not jevConfigured()):
+            source = "fallback"
+          else:
+            source = "llm"
+            try:
+              answer =
+                if kind == "jev": chooseJevDoctrine(payload, timeoutSeconds)
+                else: choosePromptDoctrine(client, view, prompt,
+                  timeoutSeconds)
+            except CatchableError as error:
+              echo "ecos player: policy call failed: ", error.msg
+              source = "fallback"
+          if source == "fallback":
+            let fields = scriptedDoctrineFromView(view, skSteward).fields
+            answer = %*{"doctrine": doctrineJson(species, fields),
+              "say": "", "notes": ""}
+          answer["type"] = %"action"
+          answer["generation"] = %generation
+          answer["source"] = %source
+          answer["latency_ms"] = %int((epochTime() - started) * 1000.0)
+          socket.send($answer)
         of "state":
           echo "ecos player: generation ", payload{"generation"}.getInt(),
             " population ", payload{"you"}{"population"}.getInt(),

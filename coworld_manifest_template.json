@@ -22,9 +22,6 @@
       "run": [
         "/bin/ecos"
       ],
-      "env": {
-        "ANTHROPIC_API_KEY_URI": "secret://coworld/ecos/anthropic_api_key"
-      },
       "source_url": "https://github.com/Metta-AI/cogame-ecos/tree/main"
     },
     "config_schema": {
@@ -149,32 +146,12 @@
           "maximum": 200,
           "default": 30
         },
-        "llmTimeoutSeconds": {
-          "type": "integer",
-          "description": "Timeout for one batch of seat requests.",
-          "minimum": 1,
-          "maximum": 120,
-          "default": 25
-        },
         "minTurnSeconds": {
           "type": "integer",
-          "description": "Floor on the wall-clock spacing between batch starts, so the episode stays under the sidecar's 30 requests per minute.",
+          "description": "Floor on wall-clock spacing between generation starts.",
           "minimum": 0,
           "maximum": 60,
           "default": 6
-        },
-        "maxOutputTokens": {
-          "type": "integer",
-          "description": "Model output cap; 400 truncates mid-JSON.",
-          "minimum": 64,
-          "maximum": 4096,
-          "default": 900
-        },
-        "model": {
-          "type": "string",
-          "maxLength": 128,
-          "default": "claude-haiku-4-5",
-          "description": "Anthropic model id when not on Bedrock."
         },
         "episodeTimeoutSeconds": {
           "type": "integer",
@@ -203,6 +180,13 @@
             "harsh-spring"
           ],
           "default": "standard"
+        },
+        "actionTimeoutSeconds": {
+          "type": "integer",
+          "description": "Deadline for one simultaneous generation of player actions.",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 25
         }
       }
     },
@@ -297,7 +281,7 @@
     "protocols": {
       "player": {
         "type": "text",
-        "value": "ecos.player.v1 - JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (/player?slot=N&token=T).\n\ngame -> player, on connect:\n  {\"type\":\"welcome\",\"protocol\":\"ecos.player.v1\",\"slot\":1,\"name\":\"Bramble\",\"role\":\"grazers\",\"generations\":10,\"ticksPerGeneration\":60}\n\ngame -> player, at every generation boundary and at episode end:\n  {\"type\":\"state\",\"protocol\":\"ecos.player.v1\",\"slot\":1,\"name\":\"Bramble\",\"role\":\"grazers\",\"generation\":4,\"generations\":10,\"ticksPerGeneration\":60,\"tick\":180,\"field\":{\"w\":1000,\"h\":562},\"you\":{\"population\":72,\"biomass\":3016,\"reference\":4000,\"scoreSoFar\":2.71,\"doctrine\":{...4 role fields...},\"meanEnergy\":41,\"meanCrowd\":3,\"cap\":140},\"species\":[{\"role\",\"alias\",\"population\",\"biomass\",\"reference\",\"cap\"} x3],\"history\":[{\"g\",\"pop\"[3],\"bio\"[3],\"births\"[3],\"starved\"[3],\"eaten\",\"score\"[3]}],\"density\":{\"cols\":10,\"rows\":6,\"grass\":[60 ints],\"grazers\":[60],\"predators\":[60]},\"notes\":\"...\",\"rules\":{...}}\n\ngame -> player, terminal:\n  {\"type\":\"final\",\"done\":true,\"slot\":N,\"scores\":[...],\"roles\":[...],\"names\":[aliases],\"generations\":G,\"reason\":...,\"ending\":...}. The player exits 0 after this frame.\n\nplayer -> game, immediately on connect and again after the welcome (the re-send guards the slot-registration race):\n  {\"type\":\"prompt\",\"prompt\":\"<= 4000 chars\",\"scripted\":\"steward|opportunist|\"}\nAny other frame is ignored with a log line.\n\nThe doctrine the game asks the model for, per role, with the caps it enforces: grass {seed_threshold 60..200, seed_range 24..240, seed_cost 20..80, crowd_limit 0..6}; grazers {birth_threshold 80..240, bite 2..14, flee_range 0..300, herd 0..100}; predators {birth_threshold 150..400, hunt_range 40..400, rest_energy 0..400, spread 0..100}. `say` is capped at 64 runes, `notes` at 400; both are truncated on rune boundaries. Out-of-range doctrine values are clamped, a missing one is an invalid reply."
+        "value": "ecos.player.v2 uses JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (/player?slot=N&token=T).\n\nOn connect the game sends a welcome with protocol, slot, alias, role, generations, and ticksPerGeneration. At each boundary it sends a state with the seat's private observation: role, generation, you, species, history, density, notes, and rules. The same observation is carried as view in a decision frame: {\"type\":\"decision\",\"protocol\":\"ecos.player.v2\",\"generation\":G,\"timeout_ms\":25000,\"view\":{...state...}}. All seats receive their decision before any doctrine is applied.\n\nThe player replies {\"type\":\"action\",\"generation\":G,\"source\":\"llm|scripted|fallback\",\"doctrine\":{...four role fields...},\"say\":\"...\",\"notes\":\"...\",\"latency_ms\":N}. Late, duplicate, malformed, or missing actions do not override the current decision. The game validates and clamps each doctrine; an absent action uses steward fallback. Say is capped at 64 runes and notes at 400.\n\nGrass doctrine: seed_threshold 60..200, seed_range 24..240, seed_cost 20..80, crowd_limit 0..6. Grazers: birth_threshold 80..240, bite 2..14, flee_range 0..300, herd 0..100. Predators: birth_threshold 150..400, hunt_range 40..400, rest_energy 0..400, spread 0..100. The game sends a final frame with scores and ending, then the player exits 0."
       },
       "global": {
         "type": "text",
@@ -307,7 +291,7 @@
     "docs": {
       "readme": {
         "type": "text",
-        "value": "Ecos is a three-seat ecology on a 1000x562 continuous field. One seat is the GRASS, one the GRAZERS, one the PREDATORS, and the roles rotate by seed. You are a species, not an individual: your seat may have one body alive or two hundred, and each of them runs the same deterministic kernel.\n\nOnce per generation - ten generations of sixty ticks each - a seat submits a DOCTRINE: four whole numbers that reparameterise that kernel for the next sixty ticks. Grass sets when, how far and how expensively it seeds and how much crowding it will tolerate; grazers set when they split, how hard they bite, how early they run and how tightly they herd; predators set when they split, how far they lock on, how fat they must be to rest and how far apart they spread.\n\nYour score is integrated biomass: for each generation, your total biomass over its ticks divided by your reference, capped at 2.0, summed over ten. Higher is better. Energy only flows up the chain, so a level that strips the level below it starves about a generation later - and the episode ends the instant any species reaches zero, with every remaining generation scoring zero for all three seats. Winning means staying in balance.\n\nA policy is just a prompt. Field the image with PLAYER_PROMPT for an LLM policy or PLAYER_SCRIPTED=steward|opportunist for a baseline."
+        "value": "Ecos is a three-seat ecology on a 1000x562 continuous field. One seat is the GRASS, one the GRAZERS, one the PREDATORS, and the roles rotate by seed. You are a species, not an individual: your seat may have one body alive or two hundred, and each of them runs the same deterministic kernel.\n\nOnce per generation - ten generations of sixty ticks each - a seat submits a DOCTRINE: four whole numbers that reparameterise that kernel for the next sixty ticks. Grass sets when, how far and how expensively it seeds and how much crowding it will tolerate; grazers set when they split, how hard they bite, how early they run and how tightly they herd; predators set when they split, how far they lock on, how fat they must be to rest and how far apart they spread.\n\nYour score is integrated biomass: for each generation, your total biomass over its ticks divided by your reference, capped at 2.0, summed over ten. Higher is better. Energy only flows up the chain, so a level that strips the level below it starves about a generation later - and the episode ends the instant any species reaches zero, with every remaining generation scoring zero for all three seats. Winning means staying in balance.\n\nEach seat is an ordinary player policy over the private state and complete doctrine action. Set PLAYER_POLICY_KIND=jev for Jev, PLAYER_PROMPT for a prompt model, or PLAYER_SCRIPTED=steward|opportunist for a baseline. The game owns legality, deadlines, results, and replay."
       },
       "pages": [
         {
@@ -323,7 +307,7 @@
           "title": "Fielding a policy",
           "content": {
             "type": "text",
-            "value": "# Fielding a policy in Ecos\n\nA policy is a prompt. `/bin/ecos-player` connects, sends\n`{\"type\":\"prompt\",\"prompt\":\"...\",\"scripted\":\"...\"}` once, and then only listens:\nevery decision is made inside the game container, which composes the seat's\nobservation plus your prompt and asks the model. That is what lets all three\nseats be decided as ONE parallel batch per generation.\n\n## An LLM policy\n\n    coworld upload-policy coworld-ecos:latest \\\n      --name my-ecos \\\n      --run /bin/ecos-player \\\n      --secret-env PLAYER_PROMPT=\"<your strategy, at most 4000 characters>\"\n\nYour prompt is rendered into the user turn under a \"GUIDANCE FROM YOUR OPERATOR\"\nheading and is weighted heavily, but never above the rules.\n\n## A scripted baseline\n\n    coworld upload-policy coworld-ecos:latest \\\n      --name my-ecos-baseline \\\n      --run /bin/ecos-player \\\n      --secret-env PLAYER_SCRIPTED=steward\n\n`steward` plays the verified default doctrine plus two closed-loop corrections\n(recruit when thin; back off when your food is thin). `opportunist` plays the\nsame corrections over a greedier constant doctrine: it scores higher when the\nother two seats are cautious and wrecks the field when they are not.\n\n## What the model sees\n\nAll three species' populations, biomass, births, starvations and predation\ncounts for every generation played; a 10x6 density grid per species; its own\ndoctrine, mean body energy, mean crowding and its own constants; the alias of\neach role. It never sees another seat's doctrine, notes or say text, the RNG\nseed, individual body positions, or anything about accounts or the league.\n\n## What the model returns\n\n    {\"doctrine\": {\"birth_threshold\": 110, \"bite\": 8, \"flee_range\": 90,\n                  \"herd\": 55},\n     \"say\": \"backing off the north pasture\",\n     \"notes\": \"grass fell 18% last gen; predators at 11 and rising\"}\n\n`say` is at most 64 characters and is spectator-only - it is drawn in the replay\nfeed and never shown to another seat. `notes` is at most 400 characters and is\nhanded back to you next generation. Both are truncated on rune boundaries.\n"
+            "value": "# Fielding a policy in Ecos\n\n`/bin/ecos-player` receives the private `ecos.player.v2` decision and returns one complete doctrine action per generation. The game sends the same observation to any player and owns doctrine validation, fallback, results, and replay.\n\nSet `PLAYER_POLICY_KIND=jev` to rank the four role-specific doctrine fields with TypeSafe SystemOne. Give the player a TypeSafe credential or a hosted model sidecar; no credential is passed to the game. Set `PLAYER_PROMPT` for the reference Claude policy. Set `PLAYER_SCRIPTED=steward` or `opportunist` for deterministic policies. A missing or failed model call sends the steward fallback action.\n\nThe observation contains all three species' populations, biomass, births, starvations and predation counts; a 10x6 density grid per species; the seat's own doctrine, energy, crowding, rules, and notes. It excludes other seats' doctrines, notes, and say text, the seed, and individual body positions.\n\nThe action contains `doctrine` with all four role fields, plus `say` and `notes`. Say is spectator-only; notes return to the same player next generation. The game clamps out-of-range fields, caps text at rune boundaries, and uses a steward doctrine if a seat is absent or its action is invalid."
           }
         }
       ]
@@ -334,7 +318,7 @@
       "id": "ecos-player",
       "name": "Ecos Prompt Player",
       "type": "player",
-      "description": "The reference Ecos policy: delivers its PLAYER_PROMPT (or a default steward strategy in words) to the game and spectates until the final frame. Field your own policy by uploading this same image with a different PLAYER_PROMPT.",
+      "description": "Prompt player: chooses a complete doctrine from each private decision using PLAYER_PROMPT guidance and a player-owned model credential.",
       "image": "{{ECOS_IMAGE}}",
       "run": [
         "/bin/ecos-player"
@@ -374,10 +358,10 @@
       }
     },
     {
-      "id": "ecos-opportunist",
-      "name": "Ecos Opportunist Baseline",
+      "id": "ecos-jev",
+      "name": "Ecos Jev Player",
       "type": "player",
-      "description": "The scripted opportunist: the same corrections over a greedier constant doctrine. It scores higher when the other two seats are cautious and wrecks the field when they are not - an honestly weaker filler.",
+      "description": "Jev ranks each of the four doctrine fields from the private observation and returns an ordinary action.",
       "image": "{{ECOS_IMAGE}}",
       "run": [
         "/bin/ecos-player"
@@ -393,7 +377,7 @@
       },
       "source_url": "https://github.com/Metta-AI/cogame-ecos/tree/main",
       "env": {
-        "PLAYER_SCRIPTED": "opportunist"
+        "PLAYER_POLICY_KIND": "jev"
       }
     }
   ],
@@ -482,13 +466,13 @@
     },
     "players": [
       {
+        "player_id": "ecos-jev"
+      },
+      {
         "player_id": "ecos-player"
       },
       {
         "player_id": "ecos-steward"
-      },
-      {
-        "player_id": "ecos-opportunist"
       }
     ]
   }

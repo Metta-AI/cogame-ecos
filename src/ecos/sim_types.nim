@@ -39,7 +39,7 @@ const
   GameVersion* = "1"
     ## Bumped whenever the recorded state-frame layout changes.
   ReplayProtocol* = "ecos.replay.v1"
-  PlayerProtocol* = "ecos.player.v1"
+  PlayerProtocol* = "ecos.player.v2"
 
   # ---- field and clock -----------------------------------------------------
   DefaultFieldW* = 1000
