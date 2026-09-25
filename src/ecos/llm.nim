@@ -1,25 +1,10 @@
-## Claude-backed decision making for Ecos. A policy is just a prompt: the
-## GAME composes each seat's observation plus that seat's `PLAYER_PROMPT`
-## and asks Claude for the next generation's doctrine.
-##
-## Forked from `cogame-bullwhip/src/bullwhip/llm.nim`. Decisions within a
-## generation are simultaneous by rule, so all three seats' requests go out
-## as ONE parallel batch (`curly.makeRequests`); an invalid reply is retried
-## once in the next batch with a hint, and anything still failing falls back
-## to the `steward` scripted doctrine. `decideAll` never raises — the episode
-## always advances.
-##
-## Credentials, in order of preference:
-##   Bedrock sidecar / bearer token   - hosted pods
-##   ANTHROPIC_API_KEY                - the key itself
-##   ANTHROPIC_API_KEY_URI            - a URI holding the key
-## With none, the client disables itself immediately and every seat plays
-## `steward`, which is what keeps offline certification green.
-
-import std/[json, math, os, strutils, times, unicode]
+## Prompt policy transport for Ecos players and trace-format prompts for training.
+## Model requests run in the player container over its private observation.
+import std/[json, os, strutils]
 import bitworld/runtime
 import curly
-import sim_types, sim, sim_config, sim_state, scripted, events
+import sim_types, sim, sim_state, decision
+export decision
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -28,19 +13,8 @@ const
 
 type
   EcosThrottleError* = object of EcosError
-    ## A 429 from the sidecar. Distinct from an unusable reply because the
-    ## note says a throttled seat is retried in the NEXT generation's batch,
-    ## not in this generation's retry batch: hitting a throttled sidecar
-    ## twice inside 50 s is what turned one throttle into a cascade
-    ## (LEARNINGS 2026-08-23 raid, item 4).
-
-  Decision* = object
-    fields*: Doctrine
-    clamped*: bool
-    say*: string
-    notes*: string
-    source*: DoctrineSource
-    latencyMs*: int
+    ## A 429 from the player sidecar. The player sends a steward fallback
+    ## action for this generation and can make a fresh call next generation.
 
   LlmTransport = enum
     ltNone, ltBedrock, ltAnthropic
@@ -55,7 +29,6 @@ type
     bedrockToken: string
     model: string
     maxOutputTokens: int
-    timeoutSeconds: int
     disabled*: bool
 
 proc resolveApiKey(): string =
@@ -83,11 +56,10 @@ proc bedrockUrl(client: LlmClient): string =
   client.bedrockEndpoint & "/model/" &
     client.bedrockModels[client.bedrockModel] & "/invoke"
 
-proc newLlmClient*(config: GameConfig): LlmClient =
+proc newLlmClient*(maxOutputTokens: int, model: string): LlmClient =
   result = LlmClient(
-    model: config.model,
-    maxOutputTokens: config.maxOutputTokens,
-    timeoutSeconds: config.llmTimeoutSeconds
+    model: model,
+    maxOutputTokens: maxOutputTokens
   )
   let bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()
   let bedrockToken = getEnv("AWS_BEARER_TOKEN_BEDROCK").strip()
@@ -114,21 +86,6 @@ proc newLlmClient*(config: GameConfig): LlmClient =
     logLine("ecos llm: no LLM credentials; every seat plays the steward baseline")
 
 # ---- text hygiene ------------------------------------------------------------
-
-proc cleanText*(text: string, limit: int): string =
-  ## Text over the cap is cut at a RUNE boundary with the cut marked. A byte
-  ## cut put invalid UTF-8 into a bullwhip replay and only a strict parser
-  ## found it (LEARNINGS 2026-08-22).
-  result = text.strip()
-  if result.runeLen <= limit:
-    return
-  result = result.runeSubStr(0, limit - 1) & "…"
-
-proc cleanSay*(text: string): string =
-  cleanText(text.replace("\n", " ").replace("\r", " "), MaxSayLen)
-
-proc cleanNotes*(text: string): string =
-  cleanText(text, MaxNotesLen)
 
 # ---- prompts -----------------------------------------------------------------
 
@@ -320,14 +277,11 @@ proc requestFor(client: LlmClient, system, user: string):
   result.headers = headers
   result.body = $body
 
-proc newLlmClientFor*(config: GameConfig, apiKey: string): LlmClient =
-  ## Explicit-key constructor. `newLlmClient` reads the environment; this one
-  ## is what `tests/test_llm.nim` uses to exercise the batch shape and the
-  ## reply parser without credentials anywhere near the runner.
+proc newLlmClientFor*(apiKey: string): LlmClient =
+  ## Explicit-key constructor for parser and transport tests.
   result = LlmClient(
-    model: config.model,
-    maxOutputTokens: config.maxOutputTokens,
-    timeoutSeconds: config.llmTimeoutSeconds,
+    model: "claude-haiku-4-5",
+    maxOutputTokens: 900,
     apiKey: apiKey,
     transport: (if apiKey.len > 0: ltAnthropic else: ltNone),
     disabled: apiKey.len == 0
@@ -357,143 +311,27 @@ proc textOf*(client: LlmClient, response: Response, error, url: string): string 
     raise newException(EcosError, "reply cut off at max_tokens before any " &
       "JSON: " & result[0 .. min(result.high, 160)].replace("\n", " "))
 
-proc numberOf(node: JsonNode, name: string): int =
-  ## A doctrine value may arrive as an integer, a numeric string or a float.
-  if node.isNil or node.kind == JNull:
-    raise newException(EcosError, "doctrine field missing: " & name)
-  case node.kind
-  of JInt: node.getInt()
-  of JFloat: int(round(node.getFloat()))
-  of JBool: raise newException(EcosError, "doctrine field is not a number: " & name)
-  of JString:
-    let text = node.getStr().strip()
-    try:
-      int(round(parseFloat(text)))
-    except ValueError:
-      raise newException(EcosError,
-        "doctrine field is not a number: " & name & "=" & text)
-  else:
-    raise newException(EcosError, "doctrine field is not a number: " & name)
-
-proc parseDecision*(species: Species, payload: JsonNode): Decision =
-  ## Tolerant: extra keys are ignored, `doctrine` may also be inlined at the
-  ## top level. A missing or non-numeric field is an INVALID reply; an
-  ## out-of-range one is clamped and recorded as such.
-  result.say = cleanSay(payload{"say"}.getStr())
-  result.notes = cleanNotes(payload{"notes"}.getStr())
-  var source = payload{"doctrine"}
-  if source.isNil or source.kind != JObject:
-    source = payload
-  var raw: Doctrine
+proc choosePromptDoctrine*(client: LlmClient, view: JsonNode,
+    prompt: string, timeoutSeconds: int): JsonNode =
+  ## Player-owned inference over the exact private observation on the wire.
+  let species = speciesFromName(view["role"].getStr())
+  var shape: seq[string]
   for i in 0 .. 3:
-    let name = DoctrineFieldNames[species][i]
-    raw[i] = numberOf(source{name}, name)
-  let checked = clampDoctrine(species, raw)
-  result.fields = checked.fields
-  result.clamped = checked.clamped
-
-proc openSeatsOf*(client: LlmClient, seats: seq[int],
-    scriptedKinds: seq[ScriptKind]): seq[int] =
-  ## Indexes into `seats` that still need a model call this generation.
-  for index, slot in seats:
-    if scriptedKinds[slot] == skNone and not client.disabled:
-      result.add(index)
-
-proc requestBatchFor*(
-  client: LlmClient,
-  sim: SimServer,
-  seats: seq[int],
-  open: seq[int],
-  prompts: seq[string],
-  attempt: int
-): RequestBatch =
-  ## ONE batch carrying every still-open seat. Decisions within a generation
-  ## are simultaneous by rule, so they go out together (curly.makeRequests) —
-  ## sequential calls blow the 720 s play budget.
-  for index in open:
-    let slot = seats[index]
-    var user = sim.userPrompt(slot, prompts[slot])
-    if attempt > 0:
-      user.add("\n\nYour previous reply was invalid. Respond with ONLY the " &
-        "requested JSON object, with all four doctrine fields as whole " &
-        "numbers in range.")
-    let request = client.requestFor(sim.systemPrompt(slot), user)
-    result.post(request.url, request.headers, request.body, $index)
-
-proc decisionFrom*(client: LlmClient, species: Species, response: Response,
-    error, url: string): Decision =
-  ## One reply, parsed tolerantly. Raises EcosError on anything unusable —
-  ## which is what puts the seat back in the retry batch.
-  parseDecision(species, extractJsonObject(
-    client.textOf(response, error, url)))
-
-proc scriptedDecision*(sim: SimServer, species: Species,
-    kind: ScriptKind): Decision =
-  let checked = scriptedDoctrineChecked(sim, species, kind)
-  Decision(
-    fields: checked.fields,
-    clamped: checked.clamped,
-    source: (if kind == skNone: dsFallback else: dsScripted)
-  )
-
-proc decideAll*(
-  client: LlmClient,
-  sim: SimServer,
-  seats: seq[int],
-  prompts: seq[string],
-  scriptedKinds: seq[ScriptKind]
-): seq[Decision] =
-  ## One decision per seat in `seats`, in order. ONE parallel batch per
-  ## generation; a failing seat is retried once in the next batch with a hint
-  ## and then falls back to the steward doctrine. Never raises.
-  result = newSeq[Decision](seats.len)
-  var open = client.openSeatsOf(seats, scriptedKinds)
-  var isOpen = newSeq[bool](seats.len)
-  for index in open:
-    isOpen[index] = true
-  for index, slot in seats:
-    if isOpen[index]:
-      continue
-    let kind = scriptedKinds[slot]
-    result[index] = scriptedDecision(sim, sim.roleOf[slot], kind)
-    if kind == skNone:
-      result[index].source = dsFallback
-  for attempt in 0 .. 1:
-    if open.len == 0 or client.disabled:
-      break
-    let batch = client.requestBatchFor(sim, seats, open, prompts, attempt)
-    let started = epochTime()
-    let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
-    let latency = int((epochTime() - started) * 1000.0)
-    var stillOpen: seq[int]
-    for position, index in open:
-      let slot = seats[index]
-      try:
-        var decision = client.decisionFrom(sim.roleOf[slot],
-          responses[position].response, responses[position].error,
-          batch[position].url)
-        decision.source = (if attempt == 0: dsLlm else: dsRetry)
-        decision.latencyMs = latency
-        result[index] = decision
-      except EcosThrottleError as error:
-        ## Not re-opened: this seat plays the steward doctrine for this
-        ## generation and gets a fresh call in the NEXT generation's batch,
-        ## a whole `minTurnSeconds`-floored turn later. The doctrine is
-        ## written HERE — the terminal fallback loop below only sees seats
-        ## left open — and recorded `fallback` like every other terminal
-        ## failure, so phase 60 counts the miss.
-        logLine("ecos llm: seat " & $slot & " " & error.msg &
-          "; playing scripted this generation and retrying in the next " &
-          "generation's batch")
-        result[index] = scriptedDecision(sim, sim.roleOf[slot], skSteward)
-        result[index].source = dsFallback
-      except CatchableError as error:
-        logLine("ecos llm: seat " & $slot & " attempt " & $attempt &
-          " failed: " & error.msg)
-        stillOpen.add(index)
-    open = stillOpen
-  for index in open:
-    let slot = seats[index]
-    logLine("ecos llm: seat " & $slot & " falling back to scripted doctrine")
-    result[index] = scriptedDecision(sim, sim.roleOf[slot], skSteward)
-    result[index].source = dsFallback
+    shape.add("\"" & DoctrineFieldNames[species][i] & "\": <" &
+      $DoctrineMin[species][i] & ".." & $DoctrineMax[species][i] & ">")
+  let system = "You control the " & RoleNames[species] &
+    " species in Ecos. Choose its four-integer doctrine for the next " &
+    "generation. Your goal is integrated biomass without collapsing the " &
+    "food chain. Reply with ONLY one JSON object."
+  let user = "Private observation and visible rules:\n" & $view &
+    "\n\nOperator guidance:\n" & prompt &
+    "\n\nReturn {\"doctrine\": {" & shape.join(", ") &
+    "}, \"say\": \"\", \"notes\": \"\"}."
+  var request = client.requestFor(system, user)
+  if client.transport == ltBedrock:
+    request.headers["x-coworld-player-slot"] = $view["slot"].getInt()
+  let response = client.curl.post(request.url, request.headers, request.body,
+    timeoutSeconds)
+  let answer = extractJsonObject(client.textOf(response, "", request.url))
+  discard parseDecision(species, answer)
+  answer

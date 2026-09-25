@@ -4,7 +4,7 @@
 ## declarations of the same fact, and nothing downstream re-checks them: a
 ## missing `num_agents` schedules zero episodes, a hand-written image
 ## placeholder hard-fails `coworld build`, and a game runnable without
-## `ANTHROPIC_API_KEY_URI` silently plays scripted in every league episode.
+## game credential drift can silently turn model seats into fallback policies.
 
 import std/[json, os, sets, strutils]
 import helpers
@@ -82,7 +82,7 @@ when isMainModule:
     doAssert player{"image"}.getStr() == placeholder
     doAssert player{"run"}[0].getStr() == "/bin/ecos-player"
   doAssert declared ==
-    ["ecos-player", "ecos-steward", "ecos-opportunist"].toHashSet()
+    ["ecos-player", "ecos-steward", "ecos-jev"].toHashSet()
   var seated: HashSet[string]
   for entry in manifest{"certification"}{"players"}:
     seated.incl(entry{"player_id"}.getStr())
@@ -120,11 +120,8 @@ when isMainModule:
       doAssert schema{"properties"}.hasKey(key),
         "config key " & key & " is not in game.config_schema.properties"
 
-  # ---- the coworld secret reaches the GAME container -----------------------
-  doAssert manifest{"game"}{"runnable"}{"env"}{"ANTHROPIC_API_KEY_URI"}
-    .getStr() == "secret://coworld/ecos/anthropic_api_key",
-    "without this the hosted game never sees the secret and every league " &
-    "episode silently plays scripted"
+  doAssert not manifest["game"]["runnable"].hasKey("env"),
+    "model credentials belong to players, not the game"
 
   # ---- docs and protocols --------------------------------------------------
   doAssert manifest{"game"}{"docs"}{"readme"}{"type"}.getStr() == "text"

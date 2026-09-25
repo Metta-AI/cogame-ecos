@@ -15,26 +15,25 @@
 ##   WS  /global                        live spectator: sprite protocol +
 ##                                      the chrome TextMessage
 ##
-## `ecos.player.v1` frames, JSON text:
-##   game -> player: welcome, state (each generation boundary + at the end),
-##                   final
-##   player -> game: {"type":"prompt","prompt":"<= 4000 chars",
-##                    "scripted":"steward|opportunist|"}
+## `ecos.player.v2` frames, JSON text:
+##   game -> player: welcome, state, decision (private view), final
+##   player -> game: action (complete four-field doctrine, say, notes)
 
-import std/[json, locks, os, sets, strutils, tables, times, unicode]
+import std/[json, locks, os, sets, strutils, tables, times]
 import bitworld/runtime
 import curly
 import mummy
 import mummy/routers
-import sim_types, sim_config, sim, sim_state, events, scripted, llm,
+import sim_types, sim_config, sim, sim_state, events, scripted, decision,
   replays, global, broadcast
 
 type
   GameState = object
     config: GameConfig
     sim: SimServer
-    prompts: seq[string]
-    scripted: seq[ScriptKind]
+    pendingGeneration: int
+    decisions: seq[Decision]
+    actionReceived: seq[bool]
     playerSockets: Table[int, WebSocket]
     socketSlots: Table[WebSocket, int]
     globalSockets: HashSet[WebSocket]
@@ -256,8 +255,6 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       finishEpisode(runtimeConfig)
       return
 
-    let client = newLlmClient(config)
-
     ## The platform kills an episode that outruns its timeout and keeps
     ## nothing, and the game container is NOT given the timeout — only the
     ## worker sidecar is. Assume the configured default when the env is
@@ -276,7 +273,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
     ## it has to be met with that reserve in hand or the settle lands outside
     ## the 60 % play budget it is meant to fit inside.
     let generationReserve =
-      float(2 * config.llmTimeoutSeconds + config.minTurnSeconds)
+      float(config.actionTimeoutSeconds + config.minTurnSeconds)
     logLine("ecos: episode timeout " & $int(timeoutSeconds) & "s (" &
       (if hostedTimeout.len > 0: "from env" else: "assumed") &
       "); playing until " & $int(timeoutSeconds * PlayBudgetFraction) &
@@ -284,11 +281,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       $int(timeoutSeconds * PlayBudgetFraction - generationReserve) & "s")
 
     while true:
-      var simCopy: SimServer
-      var prompts: seq[string]
-      var kinds: seq[ScriptKind]
-      var absent: seq[bool]
-      var seats = @[0, 1, 2]
+      let seats = @[0, 1, 2]
       withLock stateLock:
         if state.sim.done:
           break
@@ -299,33 +292,38 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           state.sim.endEarly()
           state.broadcastLocked(state.sim.tick)
           break
-        simCopy = state.sim
-        prompts = state.prompts
-        kinds = state.scripted
-        absent = newSeq[bool](kinds.len)
-        ## A seat that never connected has no prompt and no policy behind it,
-        ## so it plays the steward baseline rather than costing a model call
-        ## on an empty prompt. It rejoins the moment its socket arrives.
-        for slot in 0 ..< kinds.len:
-          if kinds[slot] == skNone and not state.playerSockets.hasKey(slot):
-            kinds[slot] = skSteward
-            absent[slot] = true
+        state.pendingGeneration = state.sim.generation
+        state.actionReceived = newSeq[bool](seats.len)
+        for slot, socket in state.playerSockets:
+          socket.send($ %*{
+            "type": "decision",
+            "protocol": PlayerProtocol,
+            "generation": state.pendingGeneration,
+            "timeout_ms": config.actionTimeoutSeconds * 1000,
+            "view": state.sim.observationJson(slot)
+          })
 
-      ## The slow part — one parallel batch of three requests — runs outside
-      ## the lock on the shared sim; only this thread mutates it, so the
-      ## snapshot cannot go stale.
+      ## All seats receive the same boundary before any doctrine is applied.
       let batchStart = epochTime()
-      let decisions = client.decideAll(simCopy, seats, prompts, kinds)
+      let decisionDeadline = batchStart + float(config.actionTimeoutSeconds)
+      while epochTime() < decisionDeadline:
+        var complete = true
+        withLock stateLock:
+          for slot in seats:
+            if state.playerSockets.hasKey(slot) and
+                not state.actionReceived[slot]:
+              complete = false
+        if complete:
+          break
+        sleep(20)
 
       var fromTick = 0
       withLock stateLock:
         fromTick = state.sim.tick
-        for index, slot in seats:
-          var decision = decisions[index]
-          ## A substituted seat is a FALLBACK, not a declared baseline: no
-          ## policy stood behind that doctrine, and phase 60 counts fallbacks.
-          if slot < absent.len and absent[slot]:
-            decision.source = dsFallback
+        for slot in seats:
+          let decision =
+            if state.actionReceived[slot]: state.decisions[slot]
+            else: scriptedDecision(state.sim, state.sim.roleOf[slot], skNone)
           let species = state.sim.roleOf[slot]
           logLine("ecos: gen " & $state.sim.generation & " " &
             state.sim.names[slot] & " (" & RoleNames[species] & ") " &
@@ -337,11 +335,10 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         logLine("ecos: " & state.sim.summaryLine())
         state.broadcastLocked(fromTick)
 
-      ## Floor the spacing between batch STARTS so the episode never exceeds
-      ## the sidecar's 30 requests/minute ceiling (LEARNINGS 2026-08-23 raid).
+      ## Floor the spacing between generation starts for sidecar rate limits.
       let elapsed = epochTime() - batchStart
       let floorSeconds = float(config.minTurnSeconds)
-      if not client.disabled and elapsed < floorSeconds:
+      if elapsed < floorSeconds:
         sleep(int((floorSeconds - elapsed) * 1000.0))
 
     finishEpisode(runtimeConfig)
@@ -450,21 +447,20 @@ proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
         return
       try:
         let payload = parseJson(message.data)
-        if payload{"type"}.getStr() == "prompt":
-          var prompt = payload{"prompt"}.getStr()
-          if prompt.runeLen > MaxPromptLen:
-            prompt = prompt.runeSubStr(0, MaxPromptLen)
-          let node = payload{"scripted"}
-          let kind =
-            if node.isNil: skNone
-            elif node.kind == JBool: (if node.getBool(): skSteward else: skNone)
-            else: parseScriptKind(node.getStr())
+        if payload{"type"}.getStr() == "action":
+          let generation = payload["generation"].getInt()
+          var decision = parseDecision(state.sim.roleOf[slot], payload)
+          case payload{"source"}.getStr()
+          of "scripted": decision.source = dsScripted
+          of "fallback": decision.source = dsFallback
+          of "llm": decision.source = dsLlm
+          else: raise newException(EcosError, "unknown action source")
+          decision.latencyMs = payload{"latency_ms"}.getInt(0)
           withLock stateLock:
-            state.prompts[slot] = prompt
-            state.scripted[slot] = kind
-          logLine("ecos: seat " & $slot & " delivered a prompt (" &
-            $prompt.len & " chars" &
-            (if kind != skNone: ", scripted " & $kind else: "") & ")")
+            if generation == state.pendingGeneration and
+                not state.actionReceived[slot]:
+              state.decisions[slot] = decision
+              state.actionReceived[slot] = true
         else:
           logLine("ecos: ignoring frame of type " &
             payload{"type"}.getStr("?") & " from seat " & $slot)
@@ -501,15 +497,15 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   ## rotation, `sim.roleOf`, and the seat vector the game loop decides over —
   ## while `numAgents` is a SEPARATE config field that can read 3 while the
   ## platform sends two tokens. Fail here, legibly, rather than on the game
-  ## thread's first `scriptedKinds[2]`, where an IndexDefect kills the loop
+  ## thread's first `actionReceived[2]`, where an IndexDefect kills the loop
   ## and the episode hangs to the platform timeout with no artifacts.
   if config.players.len != SeatAliases.len:
     raise newException(EcosError, "Ecos is a three-seat game; the platform " &
       "sent " & $config.players.len & " seats")
   state.config = config
   state.sim = newSim(config)
-  state.prompts = newSeq[string](config.players.len)
-  state.scripted = newSeq[ScriptKind](config.players.len)
+  state.decisions = newSeq[Decision](config.players.len)
+  state.actionReceived = newSeq[bool](config.players.len)
 
   gameServer = newServer(buildRouter(), websocketHandler)
   createThread(gameThread, runGame, runtimeConfig)

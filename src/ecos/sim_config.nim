@@ -21,10 +21,8 @@ type
     initGrass*, initGrazers*, initPredators*: int
     grassGain*: int
     capGrass*, capGrazers*, capPredators*: int
-    llmTimeoutSeconds*: int
+    actionTimeoutSeconds*: int
     minTurnSeconds*: int
-    maxOutputTokens*: int
-    model*: string
     episodeTimeoutSeconds*: int
     playerConnectTimeoutSeconds*: int
     shutdownGraceSeconds*: int
@@ -46,10 +44,8 @@ proc defaultGameConfig*(): GameConfig =
     capGrass: 220,
     capGrazers: 140,
     capPredators: 30,
-    llmTimeoutSeconds: 25,
+    actionTimeoutSeconds: 25,
     minTurnSeconds: 6,
-    maxOutputTokens: 900,
-    model: "claude-haiku-4-5",
     episodeTimeoutSeconds: 1200,
     playerConnectTimeoutSeconds: 180,
     shutdownGraceSeconds: 20,
@@ -79,6 +75,10 @@ proc validate*(config: GameConfig) =
     raise newException(EcosError, "roleOffset must be -1..2")
   if config.fieldW < 200 or config.fieldH < 200:
     raise newException(EcosError, "field must be at least 200x200")
+  if config.actionTimeoutSeconds < 1 or config.actionTimeoutSeconds > 120:
+    raise newException(EcosError, "actionTimeoutSeconds must be 1..120")
+  if config.minTurnSeconds < 0 or config.minTurnSeconds > 60:
+    raise newException(EcosError, "minTurnSeconds must be 0..60")
   for species in Species:
     if config.capOf(species) < 1:
       raise newException(EcosError, "caps must be positive")
@@ -123,13 +123,10 @@ proc update*(config: var GameConfig, configJson: string) =
   if node.hasKey("capGrazers"): config.capGrazers = node["capGrazers"].getInt()
   if node.hasKey("capPredators"):
     config.capPredators = node["capPredators"].getInt()
-  if node.hasKey("llmTimeoutSeconds"):
-    config.llmTimeoutSeconds = node["llmTimeoutSeconds"].getInt()
+  if node.hasKey("actionTimeoutSeconds"):
+    config.actionTimeoutSeconds = node["actionTimeoutSeconds"].getInt()
   if node.hasKey("minTurnSeconds"):
     config.minTurnSeconds = node["minTurnSeconds"].getInt()
-  if node.hasKey("maxOutputTokens"):
-    config.maxOutputTokens = node["maxOutputTokens"].getInt()
-  if node.hasKey("model"): config.model = node["model"].getStr()
   if node.hasKey("episodeTimeoutSeconds"):
     config.episodeTimeoutSeconds = node["episodeTimeoutSeconds"].getInt()
   if node.hasKey("playerConnectTimeoutSeconds"):

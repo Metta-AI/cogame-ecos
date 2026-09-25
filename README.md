@@ -24,8 +24,8 @@ then run for sixty ticks.
 | grazers | `birth_threshold` 80..240, `bite` 2..14, `flee_range` 0..300, `herd` 0..100 | 90 / 10 / 40 / 20 |
 | predators | `birth_threshold` 150..400, `hunt_range` 40..400, `rest_energy` 0..400, `spread` 0..100 | 400 / 140 / 200 / 40 |
 
-That is thirty LLM calls an episode instead of a quarter of a million per-body
-calls, and every body still runs a per-body vector policy.
+That is at most thirty model calls an episode, while every body still runs a
+per-body vector policy.
 
 Scoring is integrated biomass: `G(g)` is the generation's total biomass over
 sixty ticks divided by the role's reference (grass 20 000, grazers 4 000,
@@ -39,25 +39,30 @@ not.
 generation then scores zero for all three seats — including the seat that
 caused it.
 
-## A policy is just a prompt
+## Player policies
 
-Both policies ship in the same image, selected by environment variable:
+Every seat receives the same private `ecos.player.v2` decision and returns a
+complete four-field doctrine. The game validates and clamps actions, applies
+all three doctrines simultaneously, and writes results and replay. Model calls
+and prompts run inside ordinary player containers.
 
 ```bash
-# an LLM policy
+# Jev ranks each role-specific doctrine field
+coworld upload-policy coworld-ecos:latest --name my-ecos-jev \
+  --run /bin/ecos-player --secret-env PLAYER_POLICY_KIND=jev
+
+# A prompt model chooses a complete doctrine
 coworld upload-policy coworld-ecos:latest --name my-ecos \
   --run /bin/ecos-player --secret-env PLAYER_PROMPT="<your strategy>"
 
-# a scripted baseline
+# A deterministic baseline
 coworld upload-policy coworld-ecos:latest --name my-ecos-baseline \
   --run /bin/ecos-player --secret-env PLAYER_SCRIPTED=steward
 ```
 
-`/bin/ecos-player` connects, sends its prompt once and then only listens: all
-decision-making happens in the **game** container (`src/ecos/llm.nim`), which
-is what makes one parallel batch of three requests per generation possible.
-With no credentials the client disables itself immediately and every seat plays
-the `steward` baseline, so offline certification still completes.
+Players need their own inference credential or hosted sidecar for Jev and
+prompt calls. With no credential or a failed call, the player sends a steward
+fallback action. Missing or invalid actions also fall back in the game.
 
 Seats see only the aliases `Sedge`, `Bramble` and `Quill` and their role names.
 Policy names exist spectator-side only — in the replay, the scorebug and
@@ -73,7 +78,9 @@ Policy names exist spectator-side only — in the replay, the scorebug and
 | `src/ecos/sim.nim` | the ten numbered tick rules, the generation clock, scoring |
 | `src/ecos/events.nim` | the replay's event vocabulary |
 | `src/ecos/scripted.nim` | the `steward` and `opportunist` baselines |
-| `src/ecos/llm.nim` | the batched decision layer (forked from cogame-bullwhip) |
+| `src/ecos/decision.nim` | doctrine parsing and fallback decisions |
+| `src/ecos/llm.nim` | player-side prompt transport and parsing |
+| `src/ecos/jev_policy.nim` | player-side Jev field ranking |
 | `src/ecos/replays.nim` | the `ecos.replay.v1` writer, reader and playhead |
 | `src/ecos/global.nim` | the sprite-protocol board renderer |
 | `src/ecos/broadcast.nim` | the chrome frame the viewer draws from |
