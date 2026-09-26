@@ -1,4 +1,4 @@
-## Ecos player: scripted, prompt, or Jev policy over a private observation.
+## Ecos player: scripted or prompt policy over a private observation.
 ##
 ## The game requests one complete doctrine per generation from each seat.
 ##
@@ -10,7 +10,7 @@
 
 import std/[json, options, os, strutils, times]
 import whisky
-import ecos/[sim_types, scripted, llm, jev_policy]
+import ecos/[sim_types, scripted, llm]
 
 const DefaultPrompt = """
 You are a steward. Your score is integrated biomass, so what you want is many
@@ -33,7 +33,6 @@ when isMainModule:
   let scriptKind = parseScriptKind(getEnv("PLAYER_SCRIPTED"))
   let kind =
     if scriptKind != skNone: "scripted"
-    elif getEnv("PLAYER_POLICY_KIND").strip() == "jev": "jev"
     else: "prompt"
   let client =
     if kind == "prompt":
@@ -81,16 +80,13 @@ when isMainModule:
             let fields = scriptedDoctrineFromView(view, scriptKind).fields
             answer = %*{"doctrine": doctrineJson(species, fields),
               "say": "", "notes": ""}
-          elif (kind == "prompt" and client.disabled) or
-              (kind == "jev" and not jevConfigured()):
+          elif client.disabled:
             source = "fallback"
           else:
             source = "llm"
             try:
               answer =
-                if kind == "jev": chooseJevDoctrine(payload, timeoutSeconds)
-                else: choosePromptDoctrine(client, view, prompt,
-                  timeoutSeconds)
+                choosePromptDoctrine(client, view, prompt, timeoutSeconds)
             except CatchableError as error:
               echo "ecos player: policy call failed: ", error.msg
               source = "fallback"

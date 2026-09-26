@@ -47,10 +47,6 @@ all three doctrines simultaneously, and writes results and replay. Model calls
 and prompts run inside ordinary player containers.
 
 ```bash
-# Jev ranks each role-specific doctrine field
-coworld upload-policy coworld-ecos:latest --name my-ecos-jev \
-  --run /bin/ecos-player --secret-env PLAYER_POLICY_KIND=jev
-
 # A prompt model chooses a complete doctrine
 coworld upload-policy coworld-ecos:latest --name my-ecos \
   --run /bin/ecos-player --secret-env PLAYER_PROMPT="<your strategy>"
@@ -60,9 +56,8 @@ coworld upload-policy coworld-ecos:latest --name my-ecos-baseline \
   --run /bin/ecos-player --secret-env PLAYER_SCRIPTED=steward
 ```
 
-Players need their own inference credential or hosted sidecar for Jev and
-prompt calls. With no credential or a failed call, the player sends a steward
-fallback action. Missing or invalid actions also fall back in the game.
+Players need their own inference credential or hosted sidecar for prompt calls.
+With no credential or a failed call, the player sends a steward fallback action. Missing or invalid actions also fall back in the game.
 
 Seats see only the aliases `Sedge`, `Bramble` and `Quill` and their role names.
 Policy names exist spectator-side only — in the replay, the scorebug and
@@ -80,7 +75,6 @@ Policy names exist spectator-side only — in the replay, the scorebug and
 | `src/ecos/scripted.nim` | the `steward` and `opportunist` baselines |
 | `src/ecos/decision.nim` | doctrine parsing and fallback decisions |
 | `src/ecos/llm.nim` | player-side prompt transport and parsing |
-| `src/ecos/jev_policy.nim` | player-side Jev field ranking |
 | `src/ecos/replays.nim` | the `ecos.replay.v1` writer, reader and playhead |
 | `src/ecos/global.nim` | the sprite-protocol board renderer |
 | `src/ecos/broadcast.nim` | the chrome frame the viewer draws from |

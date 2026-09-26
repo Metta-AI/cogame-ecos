@@ -291,7 +291,7 @@
     "docs": {
       "readme": {
         "type": "text",
-        "value": "Ecos is a three-seat ecology on a 1000x562 continuous field. One seat is the GRASS, one the GRAZERS, one the PREDATORS, and the roles rotate by seed. You are a species, not an individual: your seat may have one body alive or two hundred, and each of them runs the same deterministic kernel.\n\nOnce per generation - ten generations of sixty ticks each - a seat submits a DOCTRINE: four whole numbers that reparameterise that kernel for the next sixty ticks. Grass sets when, how far and how expensively it seeds and how much crowding it will tolerate; grazers set when they split, how hard they bite, how early they run and how tightly they herd; predators set when they split, how far they lock on, how fat they must be to rest and how far apart they spread.\n\nYour score is integrated biomass: for each generation, your total biomass over its ticks divided by your reference, capped at 2.0, summed over ten. Higher is better. Energy only flows up the chain, so a level that strips the level below it starves about a generation later - and the episode ends the instant any species reaches zero, with every remaining generation scoring zero for all three seats. Winning means staying in balance.\n\nEach seat is an ordinary player policy over the private state and complete doctrine action. Set PLAYER_POLICY_KIND=jev for Jev, PLAYER_PROMPT for a prompt model, or PLAYER_SCRIPTED=steward|opportunist for a baseline. The game owns legality, deadlines, results, and replay."
+        "value": "Ecos is a three-seat ecology on a 1000x562 continuous field. One seat is the GRASS, one the GRAZERS, one the PREDATORS, and the roles rotate by seed. You are a species, not an individual: your seat may have one body alive or two hundred, and each of them runs the same deterministic kernel.\n\nOnce per generation - ten generations of sixty ticks each - a seat submits a DOCTRINE: four whole numbers that reparameterise that kernel for the next sixty ticks. Grass sets when, how far and how expensively it seeds and how much crowding it will tolerate; grazers set when they split, how hard they bite, how early they run and how tightly they herd; predators set when they split, how far they lock on, how fat they must be to rest and how far apart they spread.\n\nYour score is integrated biomass: for each generation, your total biomass over its ticks divided by your reference, capped at 2.0, summed over ten. Higher is better. Energy only flows up the chain, so a level that strips the level below it starves about a generation later - and the episode ends the instant any species reaches zero, with every remaining generation scoring zero for all three seats. Winning means staying in balance.\n\nEach seat is an ordinary player policy over the private state and complete doctrine action. Set PLAYER_PROMPT for a prompt model or PLAYER_SCRIPTED=steward|opportunist for a baseline. The game owns legality, deadlines, results, and replay."
       },
       "pages": [
         {
@@ -307,7 +307,7 @@
           "title": "Fielding a policy",
           "content": {
             "type": "text",
-            "value": "# Fielding a policy in Ecos\n\n`/bin/ecos-player` receives the private `ecos.player.v2` decision and returns one complete doctrine action per generation. The game sends the same observation to any player and owns doctrine validation, fallback, results, and replay.\n\nSet `PLAYER_POLICY_KIND=jev` to rank the four role-specific doctrine fields with TypeSafe SystemOne. Give the player a TypeSafe credential or a hosted model sidecar; no credential is passed to the game. Set `PLAYER_PROMPT` for the reference Claude policy. Set `PLAYER_SCRIPTED=steward` or `opportunist` for deterministic policies. A missing or failed model call sends the steward fallback action.\n\nThe observation contains all three species' populations, biomass, births, starvations and predation counts; a 10x6 density grid per species; the seat's own doctrine, energy, crowding, rules, and notes. It excludes other seats' doctrines, notes, and say text, the seed, and individual body positions.\n\nThe action contains `doctrine` with all four role fields, plus `say` and `notes`. Say is spectator-only; notes return to the same player next generation. The game clamps out-of-range fields, caps text at rune boundaries, and uses a steward doctrine if a seat is absent or its action is invalid."
+            "value": "# Fielding a policy in Ecos\n\n`/bin/ecos-player` receives the private `ecos.player.v2` decision and returns one complete doctrine action per generation. The game sends the same observation to any player and owns doctrine validation, fallback, results, and replay.\n\nSet `PLAYER_PROMPT` for the reference Claude policy. Set `PLAYER_SCRIPTED=steward` or `opportunist` for deterministic policies. A missing or failed model call sends the steward fallback action.\n\nThe observation contains all three species' populations, biomass, births, starvations and predation counts; a 10x6 density grid per species; the seat's own doctrine, energy, crowding, rules, and notes. It excludes other seats' doctrines, notes, and say text, the seed, and individual body positions.\n\nThe action contains `doctrine` with all four role fields, plus `say` and `notes`. Say is spectator-only; notes return to the same player next generation. The game clamps out-of-range fields, caps text at rune boundaries, and uses a steward doctrine if a seat is absent or its action is invalid."
           }
         }
       ]
@@ -358,10 +358,10 @@
       }
     },
     {
-      "id": "ecos-jev",
-      "name": "Ecos Jev Player",
+      "id": "ecos-opportunist",
+      "name": "Ecos Opportunist",
       "type": "player",
-      "description": "Jev ranks each of the four doctrine fields from the private observation and returns an ordinary action.",
+      "description": "Deterministic opportunist doctrine policy over the ordinary private observation.",
       "image": "{{ECOS_IMAGE}}",
       "run": [
         "/bin/ecos-player"
@@ -377,7 +377,7 @@
       },
       "source_url": "https://github.com/Metta-AI/cogame-ecos/tree/main",
       "env": {
-        "PLAYER_POLICY_KIND": "jev"
+        "PLAYER_SCRIPTED": "opportunist"
       }
     }
   ],
@@ -466,7 +466,7 @@
     },
     "players": [
       {
-        "player_id": "ecos-jev"
+        "player_id": "ecos-opportunist"
       },
       {
         "player_id": "ecos-player"

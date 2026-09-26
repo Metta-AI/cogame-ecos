@@ -13,31 +13,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 GAME, PLAYER = sys.argv[1:3]
-requests = {"jev": 0, "prompt": 0}
+requests = {"prompt": 0}
 
 
 class Stub(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        if self.path.endswith("/v1/systemone"):
-            requests["jev"] += 1
-            assert self.headers["x-coworld-player-slot"] == "0"
-            answers = {}
-            for name, question in body["questions"].items():
-                criteria = question["criteria"]
-                chosen = next(iter(criteria))
-                answers[name] = {"type": "choice", "probabilities": {
-                    key: 1.0 if key == chosen else 0.0 for key in criteria
-                }}
-            reply = {"answers": answers}
-        else:
-            requests["prompt"] += 1
-            assert self.headers["x-coworld-player-slot"] == "1"
-            reply = {"content": [{"type": "text", "text": json.dumps({
-                "doctrine": {"birth_threshold": 110, "bite": 8,
-                             "flee_range": 90, "herd": 55},
-                "say": "keeping balance", "notes": "stub reply"
-            })}], "stop_reason": "end_turn"}
+        requests["prompt"] += 1
+        assert self.headers["x-coworld-player-slot"] == "1"
+        reply = {"content": [{"type": "text", "text": json.dumps({
+            "doctrine": {"birth_threshold": 110, "bite": 8,
+                         "flee_range": 90, "herd": 55},
+            "say": "keeping balance", "notes": "stub reply"
+        })}], "stop_reason": "end_turn"}
         encoded = json.dumps(reply).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -86,7 +74,7 @@ with tempfile.TemporaryDirectory(prefix="ecos-policy-") as scratch:
         else:
             raise AssertionError("game health unavailable")
         for slot, settings in enumerate((
-            {"PLAYER_POLICY_KIND": "jev"},
+            {"PLAYER_SCRIPTED": "opportunist"},
             {"PLAYER_PROMPT": "Keep the ecosystem balanced."},
             {"PLAYER_SCRIPTED": "steward"},
         )):
@@ -104,15 +92,15 @@ with tempfile.TemporaryDirectory(prefix="ecos-policy-") as scratch:
             assert player.wait(timeout=5) == 0, (root / f"player-{slot}.log").read_text()
         results = json.loads((root / "results.json").read_text())
         replay = json.loads((root / "replay.json").read_text())
-        assert requests == {"jev": 2, "prompt": 2}, requests
+        assert requests == {"prompt": 2}, requests
         events = replay["events"]
         doctrines = [event for event in events if event["k"] == "doctrine"]
         sources = [event["source"] for event in doctrines]
-        assert sources.count("llm") == 4, sources
-        assert sources.count("scripted") == 2, sources
+        assert sources.count("llm") == 2, sources
+        assert sources.count("scripted") == 4, sources
         assert sources.count("fallback") == 0, sources
         assert results["reason"] == "complete", results
-        print("ecos player smoke: 2 Jev choices, 2 prompt replies, 2 scripted actions, zero fallback")
+        print("ecos player smoke: 2 prompt replies, 4 scripted actions, zero fallback")
     finally:
         for process in [*players, game]:
             if process.poll() is None:
