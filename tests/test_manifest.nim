@@ -82,7 +82,7 @@ when isMainModule:
     doAssert player{"image"}.getStr() == placeholder
     doAssert player{"run"}[0].getStr() == "/bin/ecos-player"
   doAssert declared ==
-    ["ecos-player", "ecos-steward", "ecos-jev"].toHashSet()
+    ["ecos-player", "ecos-steward", "ecos-opportunist"].toHashSet()
   var seated: HashSet[string]
   for entry in manifest{"certification"}{"players"}:
     seated.incl(entry{"player_id"}.getStr())
