@@ -17,12 +17,13 @@ type
     ## action for this generation and can make a fresh call next generation.
 
   LlmTransport = enum
-    ltNone, ltBedrock, ltAnthropic
+    ltNone, ltSidecar, ltBedrock, ltAnthropic
 
   LlmClient* = ref object
     curl: Curly
     transport: LlmTransport
     apiKey: string
+    sidecarEndpoint: string
     bedrockEndpoint: string
     bedrockModels: seq[string]
     bedrockModel: int
@@ -61,6 +62,13 @@ proc newLlmClient*(maxOutputTokens: int, model: string): LlmClient =
     model: model,
     maxOutputTokens: maxOutputTokens
   )
+  let sidecarEndpoint = getEnv("COWORLD_LLM_ENDPOINT").strip()
+  if sidecarEndpoint.len > 0:
+    result.transport = ltSidecar
+    result.sidecarEndpoint = sidecarEndpoint.strip(chars = {'/'}, leading = false)
+    result.model = getEnv("COWORLD_LLM_MODEL", "anthropic/claude-haiku-4.5")
+    result.curl = newCurly()
+    return
   let bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()
   let bedrockToken = getEnv("AWS_BEARER_TOKEN_BEDROCK").strip()
   if bedrockEndpoint.len > 0 or bedrockToken.len > 0:
@@ -253,7 +261,7 @@ proc extractJsonObject*(text: string): JsonNode =
       "no JSON object in response: " & head.replace("\n", " "))
   parseJson(text[start .. stop])
 
-proc requestFor(client: LlmClient, system, user: string):
+proc requestFor(client: LlmClient, system, user: string, slot: int):
     tuple[url: string, headers: HttpHeaders, body: string] =
   var body = %*{
     "max_tokens": client.maxOutputTokens,
@@ -261,12 +269,18 @@ proc requestFor(client: LlmClient, system, user: string):
     "messages": [{"role": "user", "content": user}]
   }
   var headers: HttpHeaders
+  if client.transport == ltSidecar and slot >= 0:
+    headers["X-Coworld-Player-Slot"] = $slot
   headers["content-type"] = "application/json"
   if client.transport == ltBedrock:
     body["anthropic_version"] = %BedrockAnthropicVersion
     if client.bedrockToken.len > 0:
       headers["authorization"] = "Bearer " & client.bedrockToken
     result.url = client.bedrockUrl()
+  elif client.transport == ltSidecar:
+    body["model"] = %client.model
+    headers["anthropic-version"] = AnthropicVersion
+    result.url = client.sidecarEndpoint & "/v1/messages"
   else:
     body["model"] = %client.model
     ## Haiku 4.5 rejects the whole request with a 400 when
@@ -327,8 +341,8 @@ proc choosePromptDoctrine*(client: LlmClient, view: JsonNode,
     "\n\nOperator guidance:\n" & prompt &
     "\n\nReturn {\"doctrine\": {" & shape.join(", ") &
     "}, \"say\": \"\", \"notes\": \"\"}."
-  var request = client.requestFor(system, user)
-  if client.transport == ltBedrock:
+  var request = client.requestFor(system, user, -1)
+  if client.transport == ltSidecar:
     request.headers["x-coworld-player-slot"] = $view["slot"].getInt()
   let response = client.curl.post(request.url, request.headers, request.body,
     timeoutSeconds)
