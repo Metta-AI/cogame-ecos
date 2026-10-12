@@ -120,11 +120,8 @@ when isMainModule:
       doAssert schema{"properties"}.hasKey(key),
         "config key " & key & " is not in game.config_schema.properties"
 
-  # ---- the coworld secret reaches the GAME container -----------------------
-  doAssert manifest{"game"}{"runnable"}{"env"}{"ANTHROPIC_API_KEY_URI"}
-    .getStr() == "secret://coworld/ecos/anthropic_api_key",
-    "without this the hosted game never sees the secret and every league " &
-    "episode silently plays scripted"
+  # Hosted inference receives its endpoint and identity from the sidecar.
+  doAssert manifest{"game"}{"runnable"}{"env"}{"ANTHROPIC_API_KEY_URI"}.isNil
 
   # ---- docs and protocols --------------------------------------------------
   doAssert manifest{"game"}{"docs"}{"readme"}{"type"}.getStr() == "text"
