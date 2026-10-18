@@ -24,7 +24,13 @@ OPERATOR = (
 
 
 def play(
-    variant, seed, wording="canonical", prompt_seed=0, normalize=False, original=False
+    variant,
+    seed,
+    wording="canonical",
+    prompt_seed=0,
+    normalize=False,
+    original=False,
+    clamp=False,
 ):
     command = [
         str(ORIGINAL if original else BRIDGE),
@@ -66,7 +72,7 @@ def play(
                 messages = observation["messages"]
                 selected = WORDINGS[prompt_seed] if wording == "mixed" else wording
                 assert (metadata["bank"], metadata["variant"]) == (
-                    "ecos-player-v1",
+                    "ecos-rules-v1",
                     selected,
                 )
                 for message in messages:
@@ -125,7 +131,12 @@ def play(
             )
             assert accepted["kind"] == "accepted"
             action = accepted["action"]
-            if normalize:
+            if clamp:
+                assert action["doctrine"] == {
+                    key: bounds["maximum"] for key, bounds in limits.items()
+                }
+                assert action["doctrine"] != proposal["doctrine"]
+            elif normalize:
                 assert (
                     action["say"] == marker * 63 + "…"
                     and action["notes"] == marker * 399 + "…"

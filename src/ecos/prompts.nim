@@ -17,7 +17,7 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "ecos-player-v1"
+  PromptBankVersion* = "ecos-rules-v1"
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:

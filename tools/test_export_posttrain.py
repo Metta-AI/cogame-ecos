@@ -56,7 +56,7 @@ for variant in ("standard", "harsh-spring"):
             view = row["observation"].copy()
             metadata = view.pop("prompt_template")
             assert (
-                metadata["bank"] == "ecos-player-v1"
+                metadata["bank"] == "ecos-rules-v1"
                 and metadata["variant"] == "canonical"
             )
             assert row["prompt"] == attempt["prompt"]
@@ -122,9 +122,7 @@ for variant in ("standard", "harsh-spring"):
                     and event["seat"] == seat
                 )
                 assert row["observation"]["tick"] == index * 60
-                assert event["fields"] == list(
-                    row["executed_action"]["doctrine"].values()
-                )
+                assert event["fields"] == row["executed_action"]["doctrine"]
                 assert not event["clamped"]
     assert {row["seed_family"] for row in episodes.values()} == {
         f"ecos-{seed}" for seed in range(1, 11)
