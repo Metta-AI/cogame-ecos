@@ -55,7 +55,10 @@ def main():
             players=[{"name": f"policy-{seat}"} for seat in range(seats)],
         )
         (work / "config.json").write_text(json.dumps(config))
-        port, closed_port = free_port(), free_port()
+        closed_endpoint = socket.socket()
+        closed_endpoint.bind(("127.0.0.1", 0))
+        closed_port = closed_endpoint.getsockname()[1]
+        port = free_port()
         env = os.environ.copy()
         for key in (
             "ANTHROPIC_API_KEY",
@@ -254,6 +257,7 @@ def main():
                     process.wait(timeout=10)
             for log in logs:
                 log.close()
+            closed_endpoint.close()
 
 
 if __name__ == "__main__":
