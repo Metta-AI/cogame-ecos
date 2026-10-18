@@ -1,9 +1,10 @@
 ## Prompt policy transport for Ecos players and trace-format prompts for training.
 ## Model requests run in the player container over its private observation.
-import std/[json, os, strutils]
+import std/[json, os, strutils, times]
 import bitworld/runtime
 import curly
-import sim_types, sim, sim_state, decision
+import sim_types, sim_state, decision, prompts, evidence
+export prompts
 export decision
 
 const
@@ -93,159 +94,6 @@ proc newLlmClient*(maxOutputTokens: int, model: string): LlmClient =
     result.disabled = true
     logLine("ecos llm: no LLM credentials; every seat plays the steward baseline")
 
-# ---- text hygiene ------------------------------------------------------------
-
-# ---- prompts -----------------------------------------------------------------
-
-proc doctrineSpec(species: Species): string =
-  var parts: seq[string]
-  for i in 0 .. 3:
-    parts.add(DoctrineFieldNames[species][i] & " (" &
-      $DoctrineMin[species][i] & ".." & $DoctrineMax[species][i] &
-      ", default " & $StewardDoctrine[species][i] & ")")
-  parts.join(", ")
-
-proc kernelText(species: Species): string =
-  case species
-  of spGrass:
-    """You are GRASS, the producer. Every tick each tuft gains
-(5 - the number of other tufts within 55 units) energy, at least 0, and pays
-1 to metabolism; energy is capped at 200. A tuft with energy >= seed_threshold
-throws a seedling seed_range units away on a random heading: if crowd_limit is
-above 0 and that spot already has crowd_limit tufts within 55 units the seed
-fails and the parent loses 10; otherwise the parent pays seed_cost + 10 and a
-new tuft is born with seed_cost energy. Your population cap is 220. Nothing
-eats you but the GRAZERS, who bite energy straight out of your tufts."""
-  of spGrazers:
-    """You are GRAZERS, the herbivores. Every tick a grazer within 16 units of
-a tuft eats: it takes `bite` energy from that tuft and keeps 80% of it. A
-grazer with a predator nearer than flee_range sprints away at 9 units per tick
-(11 when four or more grazers are close - many eyes) and pays 2 metabolism;
-otherwise it walks at 6 toward food, steering `herd` percent of the way toward
-the local herd centroid, and pays 1. Crowding costs up to 2 more per tick.
-Energy is capped at 260; at birth_threshold a grazer splits, both halves
-keeping (energy - 20) / 2. Your population cap is 140. You eat GRASS and the
-PREDATORS eat you."""
-  of spPredators:
-    """You are PREDATORS, the carnivores. A predator above rest_energy idles and
-pays 1 per tick. Below it, it locks onto the nearest grazer within hunt_range
-and chases at 12 units per tick for 3 per tick, steering `spread` percent away
-from the nearest other predator; with no grazer in range it roams at 7 for 2
-per tick. Within 16 units, and only once every 12 ticks, it kills: it gains
-min(""" & $KillCap & ", " & $KillBase & """ + the grazer's energy), capped at
-480 total. At birth_threshold it splits, both halves keeping (energy - 20) / 2.
-Your population cap is 30. You eat GRAZERS, who eat GRASS. Nothing eats you."""
-
-proc systemPrompt*(sim: SimServer, slot: int): string =
-  let species = sim.roleOf[slot]
-  result.add("You are " & sim.names[slot].toUpperAscii() & ", the " &
-    RoleNames[species].toUpperAscii() & " of one ecosystem. You are a SPECIES, " &
-    "not an individual: you may have one body alive or two hundred, and every " &
-    "one of them runs the same kernel.\n\n")
-  result.add(kernelText(species) & "\n\n")
-  result.add("ONCE PER GENERATION you submit a DOCTRINE: four whole numbers " &
-    "that reparameterise that kernel for the next 60 ticks. Your fields are: " &
-    doctrineSpec(species) & ".\n\n")
-  result.add("""SCORING. Your instantaneous biomass is the total energy of your
-living bodies. For each generation g, G(g) = (the sum of your biomass over that
-generation's ticks) / (ticks per generation x your reference biomass). Your
-score is the sum over all ten generations of min(G(g), 2.0) - so a generation
-spent at twice your reference pays no more than two generations spent at
-reference, and a boom that risks a crash never pays more than steady abundance
-that does not. HIGHER IS BETTER.
-
-THE EPISODE ENDS THE MOMENT ANY SPECIES' POPULATION REACHES ZERO, AND EVERY
-REMAINING GENERATION THEN SCORES ZERO FOR ALL THREE SEATS - including you.
-Energy only flows up the chain, so a level that strips the level below it
-starves about one generation later.
-
-""")
-  result.add("The other two seats are run by other cogs, deciding at the same " &
-    "moment you are. Nothing you write is read by them; there is no channel " &
-    "between you.\n\n")
-  result.add("""OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no
-analysis, no explanation, no markdown fences, no text before or after the
-object. Your reply must begin with the character { and end with }.""")
-
-proc historyTable(sim: SimServer): string =
-  var lines: seq[string]
-  ## The last three columns each carry all three species in role order
-  ## (grass, grazers, predators) — every one of those numbers is on the
-  ## seat's visible list, so the header says so rather than "your score".
-  lines.add("gen | grass n/B | grazers n/B | predators n/B | " &
-    "births g,h,p | starved g,h,p | eaten | scores g,h,p")
-  for index, row in sim.history:
-    lines.add($(index + 1) & " | " &
-      $row.pop[0] & "/" & $row.bio[0] & " | " &
-      $row.pop[1] & "/" & $row.bio[1] & " | " &
-      $row.pop[2] & "/" & $row.bio[2] & " | " &
-      $row.births[0] & "," & $row.births[1] & "," & $row.births[2] & " | " &
-      $row.starved[0] & "," & $row.starved[1] & "," & $row.starved[2] & " | " &
-      $row.eaten & " | " & formatFloat(row.score[0], ffDecimal, 2) & "," &
-      formatFloat(row.score[1], ffDecimal, 2) & "," &
-      formatFloat(row.score[2], ffDecimal, 2))
-  if sim.history.len == 0:
-    lines.add("(no generation has been played yet)")
-  lines.join("\n")
-
-proc densityText(sim: SimServer, species: Species): string =
-  let cells = sim.densityGrid(species)
-  var lines: seq[string]
-  for row in 0 ..< DensityRows:
-    var parts: seq[string]
-    for col in 0 ..< DensityCols:
-      parts.add(align($cells[row * DensityCols + col], 3))
-    lines.add(parts.join(" "))
-  lines.join("\n")
-
-proc operatorBlock(prompt: string): string =
-  if prompt.len == 0:
-    return ""
-  "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the " &
-    "rules; always reply in the requested format):\n" & prompt & "\n\n"
-
-proc userPrompt*(sim: SimServer, slot: int, prompt: string): string =
-  let species = sim.roleOf[slot]
-  result.add("Generation " & $sim.generation & " of " &
-    $sim.config.generations & ", tick " & $sim.tick & " of " &
-    $(sim.config.generations * sim.config.ticksPerGeneration) &
-    ". You are the " & RoleNames[species].toUpperAscii() & ".\n\n")
-  result.add("YOU RIGHT NOW: population " & $sim.population(species) &
-    " of a cap of " & $sim.capOf(species) &
-    ", biomass " & $sim.biomass(species) &
-    " against a reference of " & $ReferenceBiomass[species] &
-    ", mean body energy " & $sim.meanEnergy(species) &
-    ", mean crowding " & $sim.meanCrowd(species) &
-    ", score so far " & formatFloat(sim.scores[species], ffDecimal, 2) & ".\n")
-  result.add("YOUR DOCTRINE IN FORCE: ")
-  var current: seq[string]
-  for i in 0 .. 3:
-    current.add(DoctrineFieldNames[species][i] & "=" &
-      $sim.doctrine[species][i])
-  result.add(current.join(", ") & "\n\n")
-  result.add("THE WHOLE FIELD:\n")
-  for other in Species:
-    result.add("  " & RoleNames[other] & " (" &
-      sim.names[sim.seatOf[other]] & "): population " &
-      $sim.population(other) & "/" & $sim.capOf(other) & ", biomass " &
-      $sim.biomass(other) & "/" & $ReferenceBiomass[other] & "\n")
-  result.add("\nHISTORY:\n" & sim.historyTable() & "\n\n")
-  result.add("DENSITY GRIDS (" & $DensityCols & " columns x " &
-    $DensityRows & " rows over the whole field):\n")
-  for other in Species:
-    result.add(RoleNames[other] & ":\n" & sim.densityText(other) & "\n")
-  result.add("\nYOUR NOTES FROM LAST GENERATION:\n" &
-    (if sim.notes[slot].len > 0: sim.notes[slot] else: "(none)") & "\n\n")
-  result.add(operatorBlock(prompt))
-  var shape: seq[string]
-  for i in 0 .. 3:
-    shape.add("\"" & DoctrineFieldNames[species][i] & "\": <" &
-      $DoctrineMin[species][i] & ".." & $DoctrineMax[species][i] & ">")
-  result.add("Reply with ONLY {\"doctrine\": {" & shape.join(", ") &
-    "}, \"say\": \"…\", \"notes\": \"…\"} — every doctrine value a whole " &
-    "number in range; say at most " & $MaxSayLen & " characters; notes at " &
-    "most " & $MaxNotesLen & " characters.")
-
 # ---- transport ---------------------------------------------------------------
 
 proc extractJsonObject*(text: string): JsonNode =
@@ -325,27 +173,60 @@ proc textOf*(client: LlmClient, response: Response, error, url: string): string 
     raise newException(EcosError, "reply cut off at max_tokens before any " &
       "JSON: " & result[0 .. min(result.high, 160)].replace("\n", " "))
 
-proc choosePromptDoctrine*(client: LlmClient, view: JsonNode,
-    prompt: string, timeoutSeconds: int): JsonNode =
-  ## Player-owned inference over the exact private observation on the wire.
+proc playerPrompts*(view: JsonNode, prompt: string, selection: PromptSelection):
+    tuple[system, user: string] =
+  ## Shared by live players and training, using only the private wire view.
   let species = speciesFromName(view["role"].getStr())
   var shape: seq[string]
   for i in 0 .. 3:
     shape.add("\"" & DoctrineFieldNames[species][i] & "\": <" &
       $DoctrineMin[species][i] & ".." & $DoctrineMax[species][i] & ">")
-  let system = "You control the " & RoleNames[species] &
-    " species in Ecos. Choose its four-integer doctrine for the next " &
-    "generation. Your goal is integrated biomass without collapsing the " &
-    "food chain. Reply with ONLY one JSON object."
-  let user = "Private observation and visible rules:\n" & $view &
+  result.system = selection.introduction(RoleNames[species])
+  result.user = "Private observation and visible rules:\n" & $view &
     "\n\nOperator guidance:\n" & prompt &
     "\n\nReturn {\"doctrine\": {" & shape.join(", ") &
     "}, \"say\": \"\", \"notes\": \"\"}."
-  var request = client.requestFor(system, user, -1)
+
+proc choosePromptDoctrine*(client: LlmClient, view: JsonNode,
+    prompt: string, timeoutSeconds: int, selection: PromptSelection): JsonNode =
+  let species = speciesFromName(view["role"].getStr())
+  let messages = playerPrompts(view, prompt, selection)
+  var request = client.requestFor(messages.system, messages.user, -1)
   if client.transport == ltSidecar:
     request.headers["x-coworld-player-slot"] = $view["slot"].getInt()
-  let response = client.curl.post(request.url, request.headers, request.body,
-    timeoutSeconds)
-  let answer = extractJsonObject(client.textOf(response, "", request.url))
-  discard parseDecision(species, answer)
-  answer
+  let destination = getEnv("ECOS_ATTEMPT_TRACE_DIR")
+  let identity = $view["generation"].getInt() & "-" & $view["slot"].getInt()
+  let path = destination / (identity & ".jsonl")
+  let started = epochTime()
+  var raw, text: string
+  var parsed = newJNull()
+  var normalized = newJNull()
+  var phase = "request"
+  if destination.len > 0:
+    let model = if client.transport == ltBedrock: client.bedrockModels[client.bedrockModel] else: client.model
+    writePrivate(path, $(%*{
+      "event_type": "attempt_started", "attempt_id": identity,
+      "visibility": "private", "source_revision": getEnv("ECOS_SOURCE_REVISION"),
+      "seat": view["slot"], "generation": view["generation"], "observation": view,
+      "prompt": [{"role": "system", "content": messages.system}, {"role": "user", "content": messages.user}],
+      "prompt_template": selection.promptMetadata(messages.system, messages.user),
+      "request": {"transport": $client.transport, "model": model, "body": parseJson(request.body)}}) & "\n")
+  try:
+    let response = client.curl.post(request.url, request.headers, request.body, timeoutSeconds)
+    raw = response.body
+    phase = "response"
+    text = client.textOf(response, "", request.url)
+    phase = "parse"
+    parsed = extractJsonObject(text)
+    let order = parseDecision(species, parsed)
+    normalized = %*{"doctrine": doctrineJson(species, order.fields), "say": order.say, "notes": order.notes}
+    phase = "parsed"
+    result = parsed
+  finally:
+    if destination.len > 0:
+      appendPrivate(path, %*{
+        "event_type": "attempt_finished", "attempt_id": identity,
+        "phase": phase, "succeeded": phase == "parsed", "raw_response": raw,
+        "response": text, "parsed_action": parsed, "normalized_action": normalized,
+        "latency_ms": int((epochTime() - started) * 1000.0),
+        "platform_call_id": newJNull(), "behavior_logprobs": newJNull()})

@@ -187,6 +187,27 @@
           "minimum": 1,
           "maximum": 120,
           "default": 25
+        },
+        "promptVariant": {
+          "type": "string",
+          "enum": [
+            "canonical",
+            "plain",
+            "numbered",
+            "questions",
+            "reordered",
+            "heldout-briefing",
+            "heldout-reference",
+            "mixed"
+          ],
+          "default": "canonical",
+          "description": "Episode-stable rules wording; held-out wordings are evaluation-only."
+        },
+        "promptSeed": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Independent wording seed; explicitly required for mixed selection."
         }
       }
     },
@@ -281,7 +302,7 @@
     "protocols": {
       "player": {
         "type": "text",
-        "value": "ecos.player.v2 uses JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (/player?slot=N&token=T).\n\nOn connect the game sends a welcome with protocol, slot, alias, role, generations, and ticksPerGeneration. At each boundary it sends a state with the seat's private observation: role, generation, you, species, history, density, notes, and rules. The same observation is carried as view in a decision frame: {\"type\":\"decision\",\"protocol\":\"ecos.player.v2\",\"generation\":G,\"timeout_ms\":25000,\"view\":{...state...}}. All seats receive their decision before any doctrine is applied.\n\nThe player replies {\"type\":\"action\",\"generation\":G,\"source\":\"llm|scripted|fallback\",\"doctrine\":{...four role fields...},\"say\":\"...\",\"notes\":\"...\",\"latency_ms\":N}. Late, duplicate, malformed, or missing actions do not override the current decision. The game validates and clamps each doctrine; an absent action uses steward fallback. Say is capped at 64 runes and notes at 400.\n\nGrass doctrine: seed_threshold 60..200, seed_range 24..240, seed_cost 20..80, crowd_limit 0..6. Grazers: birth_threshold 80..240, bite 2..14, flee_range 0..300, herd 0..100. Predators: birth_threshold 150..400, hunt_range 40..400, rest_energy 0..400, spread 0..100. The game sends a final frame with scores and ending, then the player exits 0."
+        "value": "ecos.player.v2 uses JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (/player?slot=N&token=T).\n\nOn connect the game sends a welcome with protocol, slot, alias, role, generations, and ticksPerGeneration. At each boundary it sends a state with the seat's private observation: role, generation, you, species, history, density, notes, and rules. The same observation is carried as view in a decision frame: {\"type\":\"decision\",\"protocol\":\"ecos.player.v2\",\"generation\":G,\"timeout_ms\":25000,\"view\":{...state...}}. Each decision also carries prompt_config with episode-stable promptVariant and promptSeed, outside the private view. All seats receive their decision before any doctrine is applied.\n\nThe player replies {\"type\":\"action\",\"generation\":G,\"source\":\"llm|scripted|fallback\",\"doctrine\":{...four role fields...},\"say\":\"...\",\"notes\":\"...\",\"latency_ms\":N}. Late, duplicate, malformed, or missing actions do not override the current decision. The game validates and clamps each doctrine; an absent action uses steward fallback. Say is capped at 64 runes and notes at 400.\n\nGrass doctrine: seed_threshold 60..200, seed_range 24..240, seed_cost 20..80, crowd_limit 0..6. Grazers: birth_threshold 80..240, bite 2..14, flee_range 0..300, herd 0..100. Predators: birth_threshold 150..400, hunt_range 40..400, rest_energy 0..400, spread 0..100. The game sends a final frame with scores and ending, then the player exits 0."
       },
       "global": {
         "type": "text",
