@@ -22,6 +22,10 @@ class Stub(BaseHTTPRequestHandler):
         assert self.path == "/v1/messages"
         assert body["model"] == "anthropic/claude-haiku-4.5"
         assert "anthropic_version" not in body
+        assert body["system"] == (
+            "Reply with ONLY one JSON object containing the four-integer doctrine for the next generation. "
+            "In Ecos you control the grazers species, pursuing integrated biomass without collapsing the food chain."
+        )
         requests["prompt"] += 1
         assert self.headers["x-coworld-player-slot"] == "1"
         reply = {"content": [{"type": "text", "text": json.dumps({
@@ -54,6 +58,7 @@ with tempfile.TemporaryDirectory(prefix="ecos-policy-") as scratch:
     config = {"tokens": ["token-0", "token-1", "token-2"],
               "players": [{"name": name} for name in ("Sedge", "Bramble", "Quill")],
               "num_agents": 3, "seed": 7, "roleOffset": 0,
+              "promptVariant": "mixed", "promptSeed": 4,
               "generations": 2, "ticksPerGeneration": 10,
               "actionTimeoutSeconds": 5, "minTurnSeconds": 0,
               "playerConnectTimeoutSeconds": 10, "shutdownGraceSeconds": 0}

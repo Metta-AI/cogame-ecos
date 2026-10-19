@@ -1,9 +1,9 @@
 ## Prompt policy transport for Ecos players and trace-format prompts for training.
 ## Model requests run in the player container over its private observation.
-import std/[json, os, strutils, times]
+import std/[json, os, strutils]
 import bitworld/runtime
 import curly
-import sim_types, sim_state, decision, prompts, evidence
+import sim_types, sim_state, decision, prompts
 export prompts
 export decision
 
@@ -194,39 +194,8 @@ proc choosePromptDoctrine*(client: LlmClient, view: JsonNode,
   var request = client.requestFor(messages.system, messages.user, -1)
   if client.transport == ltSidecar:
     request.headers["x-coworld-player-slot"] = $view["slot"].getInt()
-  let destination = getEnv("ECOS_ATTEMPT_TRACE_DIR")
-  let identity = $view["generation"].getInt() & "-" & $view["slot"].getInt()
-  let path = destination / (identity & ".jsonl")
-  let started = epochTime()
-  var raw, text: string
-  var parsed = newJNull()
-  var normalized = newJNull()
-  var phase = "request"
-  if destination.len > 0:
-    let model = if client.transport == ltBedrock: client.bedrockModels[client.bedrockModel] else: client.model
-    writePrivate(path, $(%*{
-      "event_type": "attempt_started", "attempt_id": identity,
-      "visibility": "private", "source_revision": getEnv("ECOS_SOURCE_REVISION"),
-      "seat": view["slot"], "generation": view["generation"], "observation": view,
-      "prompt": [{"role": "system", "content": messages.system}, {"role": "user", "content": messages.user}],
-      "prompt_template": selection.promptMetadata(messages.system, messages.user),
-      "request": {"transport": $client.transport, "model": model, "body": parseJson(request.body)}}) & "\n")
-  try:
-    let response = client.curl.post(request.url, request.headers, request.body, timeoutSeconds)
-    raw = response.body
-    phase = "response"
-    text = client.textOf(response, "", request.url)
-    phase = "parse"
-    parsed = extractJsonObject(text)
-    let order = parseDecision(species, parsed)
-    normalized = %*{"doctrine": doctrineJson(species, order.fields), "say": order.say, "notes": order.notes}
-    phase = "parsed"
-    result = parsed
-  finally:
-    if destination.len > 0:
-      appendPrivate(path, %*{
-        "event_type": "attempt_finished", "attempt_id": identity,
-        "phase": phase, "succeeded": phase == "parsed", "raw_response": raw,
-        "response": text, "parsed_action": parsed, "normalized_action": normalized,
-        "latency_ms": int((epochTime() - started) * 1000.0),
-        "platform_call_id": newJNull(), "behavior_logprobs": newJNull()})
+  let response = client.curl.post(request.url, request.headers, request.body,
+    timeoutSeconds)
+  let answer = extractJsonObject(client.textOf(response, "", request.url))
+  discard parseDecision(species, answer)
+  answer

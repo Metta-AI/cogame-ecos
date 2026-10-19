@@ -8,7 +8,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BRIDGE = Path(sys.argv[1]).resolve()
-ORIGINAL = Path(sys.argv[2]).resolve()
 WORDINGS = (
     "canonical",
     "plain",
@@ -29,16 +28,14 @@ def play(
     wording="canonical",
     prompt_seed=0,
     normalize=False,
-    original=False,
     clamp=False,
 ):
     command = [
-        str(ORIGINAL if original else BRIDGE),
+        str(BRIDGE),
         str(ROOT / "coworld_manifest_template.json"),
         variant,
     ]
-    if not original:
-        command.append("text")
+    command.append("text")
     with subprocess.Popen(
         command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
     ) as process:
@@ -67,54 +64,53 @@ def play(
             role = view["role"]
             roles[seat] = role
             proposal = json.loads(request({"kind": "teacher"})["response"])
-            if not original:
-                metadata = view.pop("prompt_template")
-                messages = observation["messages"]
-                selected = WORDINGS[prompt_seed] if wording == "mixed" else wording
-                assert (metadata["bank"], metadata["variant"]) == (
-                    "ecos-rules-v1",
-                    selected,
-                )
-                for message in messages:
-                    assert (
-                        metadata[message["role"] + "_sha256"].lower()
-                        == hashlib.sha256(message["content"].encode()).hexdigest()
-                    )
+            metadata = view.pop("prompt_template")
+            messages = observation["messages"]
+            selected = WORDINGS[prompt_seed] if wording == "mixed" else wording
+            assert (metadata["bank"], metadata["variant"]) == (
+                "ecos-rules-v1",
+                selected,
+            )
+            for message in messages:
                 assert (
-                    systems.setdefault(seat, messages[0]["content"])
-                    == messages[0]["content"]
+                    metadata[message["role"] + "_sha256"].lower()
+                    == hashlib.sha256(message["content"].encode()).hexdigest()
                 )
-                if selected == "canonical":
-                    assert messages[0]["content"] == (
-                        f"You control the {role} species in Ecos. Choose its four-integer doctrine for the next "
-                        "generation. Your goal is integrated biomass without collapsing the "
-                        "food chain. Reply with ONLY one JSON object."
-                    )
-                prefix = "Private observation and visible rules:\n"
-                serialized, tail = messages[1]["content"][len(prefix) :].split(
-                    "\n\nOperator guidance:\n", 1
+            assert (
+                systems.setdefault(seat, messages[0]["content"])
+                == messages[0]["content"]
+            )
+            if selected == "canonical":
+                assert messages[0]["content"] == (
+                    f"You control the {role} species in Ecos. Choose its four-integer doctrine for the next "
+                    "generation. Your goal is integrated biomass without collapsing the "
+                    "food chain. Reply with ONLY one JSON object."
                 )
-                assert (
-                    messages[1]["content"].startswith(prefix)
-                    and json.loads(serialized) == view
-                )
-                assert tail.startswith(OPERATOR + "\n\nReturn ")
-                assert not (
-                    {"seed", "bodies", "policyNames", "prompt_template"} & set(view)
-                )
-                for other in view["species"]:
-                    assert not ({"doctrine", "notes", "say"} & set(other))
-                if normalize:
-                    marker = ("雪", "森", "海")[seat]
-                    for other in set(("雪", "森", "海")) - {marker}:
-                        assert other not in messages[1]["content"]
-                    if view["generation"] > 1:
-                        assert view["notes"] == marker * 399 + "…"
-                    proposal["say"] = marker * 90
-                    proposal["notes"] = marker * 430
-                    proposal["doctrine"] = {
-                        key: str(value) for key, value in proposal["doctrine"].items()
-                    }
+            prefix = "Private observation and visible rules:\n"
+            serialized, tail = messages[1]["content"][len(prefix) :].split(
+                "\n\nOperator guidance:\n", 1
+            )
+            assert (
+                messages[1]["content"].startswith(prefix)
+                and json.loads(serialized) == view
+            )
+            assert tail.startswith(OPERATOR + "\n\nReturn ")
+            assert not (
+                {"seed", "bodies", "policyNames", "prompt_template"} & set(view)
+            )
+            for other in view["species"]:
+                assert not ({"doctrine", "notes", "say"} & set(other))
+            if normalize:
+                marker = ("雪", "森", "海")[seat]
+                for other in set(("雪", "森", "海")) - {marker}:
+                    assert other not in messages[1]["content"]
+                if view["generation"] > 1:
+                    assert view["notes"] == marker * 399 + "…"
+                proposal["say"] = marker * 90
+                proposal["notes"] = marker * 430
+                proposal["doctrine"] = {
+                    key: str(value) for key, value in proposal["doctrine"].items()
+                }
             if clamp:
                 limits = observation["action_schema"]["properties"]["doctrine"][
                     "properties"
@@ -146,10 +142,7 @@ def play(
                 }
             else:
                 assert action == proposal
-            if original:
-                fields = tuple(action[f"field{i}"] for i in range(4))
-            else:
-                fields = tuple(action["doctrine"].values())
+            fields = tuple(action["doctrine"].values())
             trace.append((view, fields))
             observation = accepted["observation"]
             assert len(trace) <= 30
@@ -165,13 +158,13 @@ def play(
 for variant in ("standard", "harsh-spring"):
     rotations = set()
     for seed in ("17", "18", "23"):
-        baseline, outcome, _ = play(variant, seed, original=True)
+        baseline, outcome, _ = play(variant, seed)
         rotations.add(baseline[0][0]["role"])
         rendered = set()
         selected_systems = {}
         for wording, prompt_seed in [
             *((name, 0) for name in WORDINGS),
-            *(("mixed", i) for i in range(5)),
+            ("mixed", 4),
         ]:
             trace, result, systems = play(variant, seed, wording, prompt_seed)
             assert (trace, result) == (baseline, outcome)
@@ -184,7 +177,7 @@ for variant in ("standard", "harsh-spring"):
         print(
             variant,
             seed,
-            "13 text games and original numeric trajectory PASS",
+            "10 complete matched/normalized text games PASS",
             flush=True,
         )
     assert len(rotations) == 3

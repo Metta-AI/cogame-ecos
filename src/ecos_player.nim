@@ -10,7 +10,7 @@
 
 import std/[json, options, os, strutils, times]
 import whisky
-import ecos/[sim_types, scripted, llm, evidence]
+import ecos/[sim_types, scripted, llm]
 
 const DefaultPrompt = """
 You are a steward. Your score is integrated biomass, so what you want is many
@@ -74,8 +74,6 @@ when isMainModule:
           let started = epochTime()
           let timeoutSeconds = max(1,
             payload["timeout_ms"].getInt() div 1000 - 1)
-          var failure = ""
-          var attempted = false
           var source = "scripted"
           var answer: JsonNode
           if kind == "scripted":
@@ -86,13 +84,11 @@ when isMainModule:
             source = "fallback"
           else:
             source = "llm"
-            attempted = true
             try:
               answer =
                 choosePromptDoctrine(client, view, prompt, timeoutSeconds,
                   promptSelection(payload["prompt_config"]))
             except CatchableError as error:
-              failure = error.msg
               echo "ecos player: policy call failed: ", error.msg
               source = "fallback"
           if source == "fallback":
@@ -103,15 +99,6 @@ when isMainModule:
           answer["generation"] = %generation
           answer["source"] = %source
           answer["latency_ms"] = %int((epochTime() - started) * 1000.0)
-          let destination = getEnv("ECOS_PLAYER_TRACE_DIR")
-          if destination.len > 0:
-            let identity = $generation & "-" & $view["slot"].getInt()
-            writePrivate(destination / (identity & ".json"), $(%*{
-              "event_type": "player_submission", "visibility": "private",
-              "source_revision": getEnv("ECOS_SOURCE_REVISION"),
-              "seat": view["slot"], "generation": generation,
-              "attempt_id": (if attempted: %identity else: newJNull()),
-              "failure": failure, "action": answer}) & "\n")
           socket.send($answer)
         of "state":
           echo "ecos player: generation ", payload{"generation"}.getInt(),

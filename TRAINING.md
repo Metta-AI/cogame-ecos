@@ -1,6 +1,6 @@
 # Ecos prompt diversity and training
 
-Live players, the text bridge, and candidate exports share `playerPrompts`.
+Live players, the text bridge, and teacher exports share `playerPrompts`.
 The previous exporter used a different, longer prompt than the player.
 Canonical now means the unchanged live-player system and user text.
 The separate legacy training prompt builder has been removed.
@@ -12,7 +12,8 @@ stays fixed throughout an episode and does not consume simulation randomness.
 `heldout-briefing` and `heldout-reference` are evaluation-only.
 
 The host carries `prompt_config` beside the private decision view. It is not
-simulation state or public replay metadata. Wordings preserve the controlled
+simulation state or public replay metadata. Rebuild and publish the game and
+reference player together: the player consumes this required decision field. Wordings preserve the controlled
 species, four-integer doctrine, generation cadence, integrated-biomass objective,
 food-chain constraint, and JSON output format. Private observations, operator
 strategy, doctrine ranges, and inference budgets stay unchanged.
@@ -35,59 +36,36 @@ normalized result. All three observations and submissions precede installation
 of any doctrine. The original numeric interface keeps its 204 observations and
 four masked action heads of widths 251, 361, 401, and 101.
 
-## Private candidates and review
+## Teacher exports and validation
 
 ```bash
 nim c -d:release --path:src -o:/tmp/ecos-export tools/export_posttrain.nim
-/tmp/ecos-export /tmp/ecos-candidates 10 1 standard mixed 4
+/tmp/ecos-export /tmp/ecos-examples 10 1 standard mixed 0
 python3 tools/test_export_posttrain.py /tmp/ecos-export
+python3 tools/test_prompt_games.py /tmp/ecos-bridge
 ```
 
-Export requires committed, clean source and a new output directory. It uses
-published variant settings, completes each episode, and writes private files
-with mode 0600:
+Exports require clean, committed source and a new private output directory.
+They retain the original `train.jsonl`, `validation.jsonl`, and
+`manifest.json` format. Mixed selection advances once per game.
+Each row records the actual player messages and wording metadata.
+All role observations are frozen before any doctrine is installed.
 
-- `trajectories.jsonl`: frozen player observations, exact messages and hashes,
-  teacher proposals, normalized installed doctrines, and final outcomes.
-- `execution.jsonl`: decision IDs joined to installed-doctrine events and the
-  actual state frames produced by each generation, including early extinction.
-- `manifest.json`: source revision, prompt-bank version, selection, and runs.
+Seed families exclude variant and wording; multiples of five enter validation.
+Held-out wording is rejected. The steward teacher's doctrines pass the real
+parser and must remain unclamped. Each game runs to its actual end, including
+early extinction.
 
-These are candidate labels. No automatic train/validation files are produced.
-Pass trajectories through the shared Coworld SDK and Metta importer. Independent
-review must admit labels before training. Group all variants and wordings of a
-scenario by `ecos-SEED`, so related episodes cannot cross dataset splits.
-Teacher rows explicitly identify scripted origin and have no inference request,
-platform call ID, or behavior log probabilities. Engine-normalized proposals
-are not treated as accepted labels.
-
-Execution evidence records the doctrine installed for the species and resulting
-state frames. It does not claim that the model chose individual body movements.
-
-## Native evidence and matched evaluation
-
-Set `ECOS_HOST_TRACE_PATH` on the host and `ECOS_ATTEMPT_TRACE_DIR` plus
-`ECOS_PLAYER_TRACE_DIR` on reference players. Set `ECOS_SOURCE_REVISION` to the
-qualified revision. Each evidence path must be new. These optional artifacts
-are private; never publish them with spectator replays.
-
-Attempt records capture the actual request body, model, messages, hashes,
-response, parse phase, and normalization. Submission records distinguish a
-failed request from the fallback action sent afterward. Host records prove
-which doctrine was installed and join it to replay events and state frames.
-Public replay retains its existing spectator notes and event semantics.
+The existing native player workflow checks the selected system prompt at a
+local model endpoint, then verifies installed model and scripted actions:
 
 ```bash
-nim c -d:release --path:src -o:/tmp/ecos-game src/ecos.nim
-nim c -d:release --path:src -o:/tmp/ecos-player src/ecos_player.nim
-python3 tools/test_native_prompts.py /tmp/ecos-game /tmp/ecos-player /tmp/ecos-native
+python3 tools/ci/player_policy_smoke.py /tmp/ecos-game /tmp/ecos-player
 ```
 
-The native panel runs both published variants and all seven additional wording
-selections with three real players and a closed inference endpoint. `--smoke`
-covers both canonical variants. Published timeouts, turn floors, generation
-counts, and simulation ticks remain unchanged. This verifies failures and
-fallbacks; it does not establish successful provider inference.
+That smoke uses its existing two-generation fixture. Complete bridge and
+export checks use published variants and normal game budgets. Neither measures
+live provider quality.
 
 Compare frozen base, canonical-trained, and mixed-trained checkpoints using
 matched scenario seeds, opponents, and all three role rotations. Report biomass

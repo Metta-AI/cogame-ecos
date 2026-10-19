@@ -25,11 +25,10 @@ import curly
 import mummy
 import mummy/routers
 import sim_types, sim_config, sim, sim_state, events, scripted, decision,
-  replays, global, broadcast, prompts, evidence
+  replays, global, broadcast, prompts
 
 type
   GameState = object
-    tracePath: string
     selection: PromptSelection
     config: GameConfig
     sim: SimServer
@@ -175,8 +174,6 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
     if not state.sim.done:
       state.sim.endEarly()
     results = state.sim.resultsJson()
-    if state.tracePath.len > 0:
-      appendPrivate(state.tracePath, %*{"event_type": "host_finished", "results": results})
     replayData = replayBytes(state.sim, results)
 
     ## Final frames go out BEFORE the artifacts are written: the hosted
@@ -298,11 +295,6 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           break
         state.pendingGeneration = state.sim.generation
         state.actionReceived = newSeq[bool](seats.len)
-        if state.tracePath.len > 0:
-          for slot in seats:
-            appendPrivate(state.tracePath, %*{"event_type": "host_observation",
-              "seat": slot, "generation": state.pendingGeneration, "tick": state.sim.tick,
-              "observation": state.sim.observationJson(slot)})
         for slot, socket in state.playerSockets:
           socket.send($ %*{
             "type": "decision",
@@ -341,18 +333,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             (if decision.say.len > 0: " says \"" & decision.say & "\"" else: ""))
           state.sim.applyDoctrine(species, decision.fields, decision.source,
             decision.clamped, decision.say, decision.notes, decision.latencyMs)
-          if state.tracePath.len > 0:
-            appendPrivate(state.tracePath, %*{"event_type": "host_decision",
-              "seat": slot, "generation": state.pendingGeneration, "tick": state.sim.tick,
-              "received": state.actionReceived[slot], "source": $decision.source,
-              "installed": eventToJson(state.sim.events[^1]),
-              "executed_action": {"doctrine": doctrineJson(species, state.sim.doctrine[species]),
-                "say": decision.say, "notes": decision.notes}})
         state.sim.runGeneration()
-        if state.tracePath.len > 0:
-          appendPrivate(state.tracePath, %*{"event_type": "host_generation",
-            "generation": state.pendingGeneration, "start_tick": fromTick, "end_tick": state.sim.tick,
-            "frames": executionFrames(state.sim, fromTick), "terminal": state.sim.done})
         logLine("ecos: " & state.sim.summaryLine())
         state.broadcastLocked(fromTick)
 
@@ -424,6 +405,7 @@ proc playerUpgradeHandler(request: Request) {.gcsafe.} =
       websocket.send($ %*{
         "type": "welcome",
         "protocol": PlayerProtocol,
+            "prompt_config": {"promptVariant": $state.selection.variant, "promptSeed": state.selection.seed},
         "slot": slot,
         "name": state.sim.names[slot],
         "role": RoleNames[state.sim.roleOf[slot]],
@@ -526,11 +508,6 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.selection = promptSelection(parseJson(runtimeConfig.config))
   state.config = config
   state.sim = newSim(config)
-  state.tracePath = getEnv("ECOS_HOST_TRACE_PATH")
-  if state.tracePath.len > 0:
-    writePrivate(state.tracePath, $(%*{"event_type": "host_started", "visibility": "private",
-      "source_revision": getEnv("ECOS_SOURCE_REVISION"), "seed": config.seed,
-      "prompt_selection": state.selection.selectionMetadata()}) & "\n")
   state.decisions = newSeq[Decision](config.players.len)
   state.actionReceived = newSeq[bool](config.players.len)
 

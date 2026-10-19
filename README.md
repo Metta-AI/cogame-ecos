@@ -121,4 +121,4 @@ cream chassis, antlers/ears and a grass-green saddle-pack. The source sheet
 lives at `scripts/art/source/creatures_sheet.png` and the split script keys,
 crops and sizes it; the board draws 1:1, so the PNG size is the body size.
 
-Prompt variants, private candidate exports, and matched validation are documented in [TRAINING.md](TRAINING.md).
+Prompt variants, seeded teacher exports, and matched validation are documented in [TRAINING.md](TRAINING.md).
