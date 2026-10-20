@@ -1,45 +1,86 @@
-# Ecos training
+# Ecos prompt diversity and training
 
-Ecos has a deterministic local simulator and hosted text players. Export
-complete episodes for Metta post-training with the hosted per-seat prompts and
-reply parser:
+Live players, the text bridge, and teacher exports share `playerPrompts`.
+The previous exporter used a different, longer prompt than the player.
+Canonical now means the unchanged live-player system and user text.
+The separate legacy training prompt builder has been removed.
 
-```bash
-nimby sync nimby.lock
-nim r --path:src tools/export_posttrain.nim /tmp/ecos-standard 10 1 standard
-nim r --path:src tools/export_posttrain.nim /tmp/ecos-harsh 10 1 harsh-spring
-```
+`promptVariant` selects `canonical`, `plain`, `numbered`, `questions`, or
+`reordered` for training. `mixed` selects one of those five using
+`promptSeed mod 5`; it requires an explicit nonnegative seed. The selection
+stays fixed throughout an episode and does not consume simulation randomness.
+`heldout-briefing` and `heldout-reference` are evaluation-only.
 
-The exporter reads each certified `game_config` from
-`coworld_manifest_template.json`, runs seeded episodes with the published
-steward baseline, and writes `train.jsonl`, `validation.jsonl`, and
-`manifest.json`. Seeds divisible by five go to validation, keeping each
-episode in one split. Each doctrine passes the hosted parser before the native
-simulator applies it. The exporter refuses an existing output directory.
+The host carries `prompt_config` beside the private decision view. It is not
+simulation state or public replay metadata. Rebuild and publish the game and
+reference player together: the player consumes this required decision field. Wordings preserve the controlled
+species, four-integer doctrine, generation cadence, integrated-biomass objective,
+food-chain constraint, and JSON output format. Private observations, operator
+strategy, doctrine ranges, and inference budgets stay unchanged.
 
-Train the text policy with Metta's post-training CLI:
-
-```bash
-uv run python -m metta_posttrain.train --dataset /tmp/ecos-standard \
-  --output /tmp/ecos-model --model Qwen/Qwen2.5-0.5B-Instruct \
-  --max-steps 100 --max-length 4096
-```
-
-The dataset imitates scripted play; its loss does not measure policy quality.
-
-For native PufferLib reinforcement learning, compile the persistent decision
-bridge and pass it to Metta's `recipes.external.coworld.train` recipe:
+## Complete text actions
 
 ```bash
-nim c -d:release --path:src -o:ecos-train-bridge tools/train_bridge.nim
-uv run ./tools/run.py recipes.external.coworld.train \
-  'command=["/absolute/path/to/ecos-train-bridge","/absolute/path/to/coworld_manifest_template.json","standard"]' \
-  players=3 total_timesteps=100000
+nim c -d:release --path:src -o:/tmp/ecos-bridge tools/train_bridge.nim
+/tmp/ecos-bridge coworld_manifest_template.json standard text
 ```
 
-Replace `standard` with `harsh-spring` for that certified variant. The bridge
-uses player-visible state only. It exposes 204 numeric observations and four
-masked action heads for the exact native doctrine fields. Head widths are
-251, 361, 401, and 101 for every seat. The steward provides opponent play and
-optional teacher labels. Metta recipe support is in PR #24679, stacked on
-#24573.
+The JSONL bridge accepts `reset`, `teacher`, and `step`. Reset includes three
+players, a scenario `seed`, `promptVariant`, `promptSeed`, and a split of
+`train`, `validation`, or `test`. Training rejects held-out wordings.
+
+Text actions contain the complete role-specific `doctrine`, spectator `say`,
+and private `notes`. The real player parser rounds numeric inputs, clamps
+ranges, and truncates text at rune boundaries. Accepted actions report the
+normalized result. All three observations and submissions precede installation
+of any doctrine. The original numeric interface keeps its 204 observations and
+four masked action heads of widths 251, 361, 401, and 101.
+
+## Teacher exports and validation
+
+```bash
+nim c -d:release --path:src -o:/tmp/ecos-export tools/export_posttrain.nim
+/tmp/ecos-export /tmp/ecos-examples 10 1 standard mixed 0
+python3 tools/test_export_posttrain.py /tmp/ecos-export
+python3 tools/test_prompt_games.py /tmp/ecos-bridge
+```
+
+Exports require clean, committed source and a new private output directory.
+They retain the original `train.jsonl`, `validation.jsonl`, and
+`manifest.json` format. Mixed selection cycles separately within each split,
+keeping all five wordings in training. Episode IDs include requested selection, resolved wording, and prompt seed
+to distinguish matched collections of the same scenario.
+Each row records the actual player messages and wording metadata.
+All role observations are frozen before any doctrine is installed.
+
+Seed families exclude variant and wording; multiples of five enter validation.
+Held-out wording is rejected. The steward teacher's doctrines pass the real
+parser and must remain unclamped. Each game runs to its actual end, including
+early extinction.
+
+The existing native player workflow checks the selected system prompt at a
+local model endpoint, then verifies installed model and scripted actions:
+
+```bash
+python3 tools/ci/player_policy_smoke.py /tmp/ecos-game /tmp/ecos-player
+```
+
+That smoke uses its existing two-generation fixture. Complete bridge and
+export checks use published variants and normal game budgets. Neither measures
+live provider quality.
+
+Compare frozen base, canonical-trained, and mixed-trained checkpoints using
+matched scenario seeds, opponents, and all three role rotations. Report biomass
+scores, extinction rates, invalid/clamped actions, inference failures, and
+held-out wording performance separately. Local parity checks do not demonstrate
+improved learning or resistance to policy collapse.
+
+## Numeric reinforcement learning
+
+```bash
+python3 tools/test_train_bridge.py /tmp/ecos-bridge
+```
+
+Use `recipes.external.coworld.train` or `recipes.external.coworld_metta_rl.train`
+with the absolute bridge/manifest paths, a published variant, `players=3`, and a
+training timestep limit. The steward supplies opponents and teacher labels.

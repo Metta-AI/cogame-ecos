@@ -168,7 +168,7 @@ jobs:
               fi
               echo "::group::nim r ${flags} --path:src ${t}"
               # shellcheck disable=SC2086
-              if ! nim r ${flags} --path:src "${t}"; then
+              if ! nim r ${flags} --out:"${RUNNER_TEMP}/$(basename "${t}" .nim)-${m}" --path:src "${t}"; then
                 echo "::error::FAILED (${m}) ${t}"
                 fail=1
               fi
@@ -183,6 +183,15 @@ jobs:
           nim c --hints:off --path:src -o:/tmp/ecos-policy-game src/ecos.nim
           nim c --hints:off --path:src -o:/tmp/ecos-policy-player src/ecos_player.nim
           python3 tools/ci/player_policy_smoke.py /tmp/ecos-policy-game /tmp/ecos-policy-player
+
+      - name: Complete numeric, wording and export workflows
+        run: |
+          nim c -d:release --path:src --out:"${RUNNER_TEMP}/ecos-bridge" tools/train_bridge.nim
+          python3 tools/test_train_bridge.py "${RUNNER_TEMP}/ecos-bridge"
+          python3 tools/test_prompt_games.py "${RUNNER_TEMP}/ecos-bridge"
+          nim c -d:release --path:src --out:"${RUNNER_TEMP}/ecos-export" tools/export_posttrain.nim
+          python3 tools/test_export_posttrain.py "${RUNNER_TEMP}/ecos-export"
+
 
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs

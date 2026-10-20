@@ -25,10 +25,11 @@ import curly
 import mummy
 import mummy/routers
 import sim_types, sim_config, sim, sim_state, events, scripted, decision,
-  replays, global, broadcast
+  replays, global, broadcast, prompts
 
 type
   GameState = object
+    selection: PromptSelection
     config: GameConfig
     sim: SimServer
     pendingGeneration: int
@@ -298,6 +299,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           socket.send($ %*{
             "type": "decision",
             "protocol": PlayerProtocol,
+            "prompt_config": {"promptVariant": $state.selection.variant, "promptSeed": state.selection.seed},
             "generation": state.pendingGeneration,
             "timeout_ms": config.actionTimeoutSeconds * 1000,
             "view": state.sim.observationJson(slot)
@@ -403,6 +405,7 @@ proc playerUpgradeHandler(request: Request) {.gcsafe.} =
       websocket.send($ %*{
         "type": "welcome",
         "protocol": PlayerProtocol,
+            "prompt_config": {"promptVariant": $state.selection.variant, "promptSeed": state.selection.seed},
         "slot": slot,
         "name": state.sim.names[slot],
         "role": RoleNames[state.sim.roleOf[slot]],
@@ -502,6 +505,7 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   if config.players.len != SeatAliases.len:
     raise newException(EcosError, "Ecos is a three-seat game; the platform " &
       "sent " & $config.players.len & " seats")
+  state.selection = promptSelection(parseJson(runtimeConfig.config))
   state.config = config
   state.sim = newSim(config)
   state.decisions = newSeq[Decision](config.players.len)

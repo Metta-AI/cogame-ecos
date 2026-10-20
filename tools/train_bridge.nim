@@ -13,9 +13,10 @@ proc seedOf(value: string): int =
     hash = (hash xor uint32(ord(ch))) * 16777619'u32
   int(hash and 0x7fffffff'u32)
 
-proc decision(sim: SimServer, slot, id: int): JsonNode =
+proc decision(sim: SimServer, slot, id: int, selection: PromptSelection, textMode: bool): JsonNode =
   let state = sim.observationJson(slot)
-  %*{
+  let messages = playerPrompts(state, OperatorPrompt, selection)
+  result = %*{
     "kind": "decision",
     "game": "ecos",
     "decision_id": id,
@@ -25,13 +26,27 @@ proc decision(sim: SimServer, slot, id: int): JsonNode =
     "semantic_view": state,
     "inbox": [],
     "messages": [
-      {"role": "system", "content": sim.systemPrompt(slot)},
-      {"role": "user", "content": sim.userPrompt(slot, OperatorPrompt)}
+      {"role": "system", "content": messages.system},
+      {"role": "user", "content": messages.user}
     ],
     "speech_messages": [],
     "action_schema": {"type": "object", "required": ["field0", "field1", "field2", "field3"]},
     "typed_question": newJNull()
   }
+
+  if textMode:
+    result["semantic_view"]["prompt_template"] = selection.promptMetadata(messages.system, messages.user)
+    var fields = newJObject()
+    var required = newJArray()
+    let species = sim.roleOf[slot]
+    for i in 0 .. 3:
+      let name = DoctrineFieldNames[species][i]
+      required.add(%name)
+      fields[name] = %*{"type": "integer", "minimum": DoctrineMin[species][i], "maximum": DoctrineMax[species][i]}
+    result["action_schema"] = %*{"type": "object", "required": ["doctrine"],
+      "properties": {"doctrine": {"type": "object", "required": required, "properties": fields},
+        "say": {"type": "string", "maxLength": MaxSayLen},
+        "notes": {"type": "string", "maxLength": MaxNotesLen}}}
 
 proc encoding(sim: SimServer, slot, id: int): JsonNode =
   let state = sim.observationJson(slot)
@@ -63,15 +78,19 @@ proc encoding(sim: SimServer, slot, id: int): JsonNode =
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 1 .. 2:
-    quit("usage: ecos-train-bridge MANIFEST [VARIANT]", 1)
-  let variant = if args.len == 2: args[1] else: "standard"
+  if args.len notin 1 .. 3:
+    quit("usage: ecos-train-bridge MANIFEST [VARIANT [text]]", 1)
+  let textMode = args.len == 3
+  if textMode: doAssert args[2] == "text"
+  let variant = if args.len >= 2: args[1] else: "standard"
   let manifest = parseFile(args[0])
   var variantConfig: JsonNode
   for entry in manifest["variants"]:
     if entry["id"].getStr() == variant:
       variantConfig = entry["game_config"]
   doAssert not variantConfig.isNil, "unknown variant: " & variant
+  var selection: PromptSelection
+  var pending: array[3, Decision]
   var game: SimServer
   var slot = 0
   var id = 0
@@ -81,6 +100,11 @@ when isMainModule:
     case request["kind"].getStr()
     of "reset":
       doAssert request["players"].getInt() == 3
+      selection = if textMode: promptSelection(request) else: PromptSelection()
+      let split = if request.hasKey("split"): request["split"].getStr() else: "train"
+      doAssert split in ["train", "validation", "test"]
+      if split == "train" and selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+        raise newException(ValueError, "held-out wording is evaluation-only")
       var config = defaultGameConfig()
       let runtimeConfig = copy(variantConfig)
       runtimeConfig["tokens"] = %*["t0", "t1", "t2"]
@@ -89,7 +113,7 @@ when isMainModule:
       game = newSim(config)
       slot = 0
       id = 0
-      response = game.decision(slot, id)
+      response = game.decision(slot, id, selection, textMode)
     of "encode":
       doAssert not game.isNil and not game.done
       response = game.encoding(slot, id)
@@ -99,22 +123,37 @@ when isMainModule:
       var action = newJObject()
       for field in 0 .. 3:
         action["field" & $field] = %teacher.fields[field]
+      if textMode:
+        action = %*{"doctrine": doctrineJson(game.roleOf[slot], teacher.fields), "say": "", "notes": ""}
       response = %*{"response": $action}
     of "step":
       doAssert not game.isNil and not game.done
       doAssert request["decision_id"].getInt() == id
-      let action = parseJson(request["response"].getStr())
+      let action = extractJsonObject(request["response"].getStr())
       let species = game.roleOf[slot]
-      var fields = newJObject()
-      for field in 0 .. 3:
-        let value = action["field" & $field].getInt()
-        doAssert value in DoctrineMin[species][field] .. DoctrineMax[species][field]
-        fields[DoctrineFieldNames[species][field]] = %value
-      let parsed = parseDecision(species, %*{"doctrine": fields, "say": "", "notes": ""})
-      doAssert not parsed.clamped
-      game.applyDoctrine(species, parsed.fields, dsScripted, false, "", "", 0)
+      var payload = action
+      if not textMode:
+        var fields = newJObject()
+        for field in 0 .. 3:
+          let value = action["field" & $field].getInt()
+          doAssert value in DoctrineMin[species][field] .. DoctrineMax[species][field]
+          fields[DoctrineFieldNames[species][field]] = %value
+        payload = %*{"doctrine": fields, "say": "", "notes": ""}
+      let parsed = parseDecision(species, payload)
+      var accepted = action
+      if textMode:
+        accepted = %*{"doctrine": doctrineJson(species, parsed.fields), "say": parsed.say, "notes": parsed.notes}
+        pending[slot] = parsed
+      else:
+        doAssert not parsed.clamped
+        game.applyDoctrine(species, parsed.fields, dsScripted, false, "", "", 0)
       inc slot
       if slot == 3:
+        if textMode:
+          for seat in 0 .. 2:
+            let order = pending[seat]
+            game.applyDoctrine(game.roleOf[seat], order.fields, dsScripted,
+              order.clamped, order.say, order.notes, 0)
         game.runGeneration()
         slot = 0
       inc id
@@ -125,8 +164,8 @@ when isMainModule:
           scores[$seat] = game.resultsJson()["scores"][seat]
         observation = %*{"kind": "terminal", "scores": scores}
       else:
-        observation = game.decision(slot, id)
-      response = %*{"kind": "accepted", "action": action, "observation": observation}
+        observation = game.decision(slot, id, selection, textMode)
+      response = %*{"kind": "accepted", "action": accepted, "observation": observation}
     else:
       raise newException(ValueError, "unknown command: " & request["kind"].getStr())
     stdout.writeLine($response)

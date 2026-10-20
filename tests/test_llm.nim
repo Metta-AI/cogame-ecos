@@ -40,6 +40,7 @@ when isMainModule:
   except EcosError:
     rejected = true
   doAssert rejected
-  doAssert "min(" & $KillCap & ", " & $KillBase &
-    " + the grazer's energy)" in world.systemPrompt(world.seatOf[spPredators])
+  let view = world.observationJson(world.seatOf[spPredators])
+  doAssert view["rules"]["killCap"].getInt() == KillCap
+  doAssert view["rules"]["killBase"].getInt() == KillBase
   echo "test_llm: ok"

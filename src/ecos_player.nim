@@ -86,7 +86,8 @@ when isMainModule:
             source = "llm"
             try:
               answer =
-                choosePromptDoctrine(client, view, prompt, timeoutSeconds)
+                choosePromptDoctrine(client, view, prompt, timeoutSeconds,
+                  promptSelection(payload["prompt_config"]))
             except CatchableError as error:
               echo "ecos player: policy call failed: ", error.msg
               source = "fallback"
