@@ -48,7 +48,7 @@ python3 tools/test_prompt_games.py /tmp/ecos-bridge
 Exports require clean, committed source and a new private output directory.
 They retain the original `train.jsonl`, `validation.jsonl`, and
 `manifest.json` format. Mixed selection cycles separately within each split,
-keeping all five wordings in training. Episode IDs include the selected wording
+keeping all five wordings in training. Episode IDs include requested selection, resolved wording, and prompt seed
 to distinguish matched collections of the same scenario.
 Each row records the actual player messages and wording metadata.
 All role observations are frozen before any doctrine is installed.

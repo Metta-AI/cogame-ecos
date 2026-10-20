@@ -73,7 +73,8 @@ when isMainModule:
         let parsed = parseDecision(species, completion)
         doAssert parsed.fields == teacher.fields and not parsed.clamped
         rows.add($(%*{
-          "episode_id": "ecos-" & variant & "-" & $seed & "-" & $wording.selectedVariant,
+          "episode_id": "ecos-" & variant & "-" & $seed & "-" & $wording.variant & "-" &
+            $wording.selectedVariant & "-" & $wording.seed,
           "seed": "ecos-" & $seed,
           "decision_id": rows.len,
           "prompt": [
